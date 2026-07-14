@@ -8,8 +8,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-icon">🎮</span>
-          <span>Server Manager</span>
+          <span className="brand-icon">⚡</span>
+          <span>Stormsmith</span>
         </div>
         <nav>
           <NavLink to="/" end>Dashboard</NavLink>

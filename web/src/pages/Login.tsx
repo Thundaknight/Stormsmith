@@ -40,8 +40,8 @@ export default function Login() {
     <div className="center-screen">
       <form className="card login-card" onSubmit={submit}>
         <div className="brand login-brand">
-          <span className="brand-icon">🎮</span>
-          <span>Server Manager</span>
+          <span className="brand-icon">⚡</span>
+          <span>Stormsmith</span>
         </div>
         {needsSetup ? (
           <p className="muted">Welcome! Create the initial admin account to get started.</p>

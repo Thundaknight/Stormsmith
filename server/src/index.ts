@@ -38,7 +38,7 @@ monitor.start();
 discordBot.start().catch((err) => console.error('[discord] startup error:', err));
 
 httpServer.listen(config.port, () => {
-  console.log(`Server Manager listening on port ${config.port}`);
+  console.log(`Stormsmith listening on port ${config.port}`);
   console.log(`Data directory: ${config.dataDir}`);
   console.log(`Docker: ${config.dockerHost || config.dockerSocket}`);
 });

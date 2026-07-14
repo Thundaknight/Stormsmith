@@ -1,8 +1,8 @@
 {
-  "name": "server-manager",
-  "version": "1.0.0",
+  "name": "stormsmith",
+  "version": "1.0.1",
   "private": true,
-  "description": "Game server manager for Docker on Unraid — web UI, RCON, and Discord bot",
+  "description": "Stormsmith — game server manager for Docker on Unraid with web UI, RCON, and Discord bot",
   "workspaces": [
     "server",
     "web"

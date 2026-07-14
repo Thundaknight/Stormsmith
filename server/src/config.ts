@@ -15,10 +15,22 @@ function loadJwtSecret(): string {
   return secret;
 }
 
+// Migrate data from installs of the pre-rename "server-manager" image
+function resolveDbFile(): string {
+  const dbFile = path.join(dataDir, 'stormsmith.db');
+  const legacy = path.join(dataDir, 'server-manager.db');
+  if (!fs.existsSync(dbFile) && fs.existsSync(legacy)) {
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fs.existsSync(legacy + suffix)) fs.renameSync(legacy + suffix, dbFile + suffix);
+    }
+  }
+  return dbFile;
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '8080', 10),
   dataDir,
-  dbFile: path.join(dataDir, 'server-manager.db'),
+  dbFile: resolveDbFile(),
   jwtSecret: loadJwtSecret(),
   tokenTtl: process.env.TOKEN_TTL || '7d',
   // Docker connection: DOCKER_HOST=tcp://ip:2375 for remote, otherwise the local socket
