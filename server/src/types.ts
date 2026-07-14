@@ -24,6 +24,7 @@ export interface GameServer {
   rcon_port: number;
   rcon_password: string;
   broadcast_template: string;
+  config_path: string;
   created_at: string;
 }
 

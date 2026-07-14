@@ -3,9 +3,12 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import PalworldSettings from '../components/PalworldSettings';
 import StatusBadge from '../components/StatusBadge';
 import type { GameServer, ServerAction } from '../types';
 import { GAME_PRESETS } from '../types';
+import type { GameCommand } from '../gameCommands';
+import { GAME_COMMANDS, buildCommand } from '../gameCommands';
 import { useStatusSocket } from '../useStatusSocket';
 
 interface ConsoleLine {
@@ -38,6 +41,10 @@ export default function ServerDetail() {
   const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
   const [rconBusy, setRconBusy] = useState(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
+
+  // Game command palette
+  const [selectedCmd, setSelectedCmd] = useState<GameCommand | null>(null);
+  const [cmdValues, setCmdValues] = useState<Record<string, string>>({});
 
   // Broadcast
   const [message, setMessage] = useState('');
@@ -107,11 +114,7 @@ export default function ServerDetail() {
     }
   };
 
-  const runRcon = async (e: FormEvent) => {
-    e.preventDefault();
-    const cmd = command.trim();
-    if (!cmd) return;
-    setCommand('');
+  const sendToConsole = async (cmd: string) => {
     setConsoleLines((l) => [...l, { kind: 'cmd', text: `> ${cmd}` }]);
     setRconBusy(true);
     try {
@@ -122,6 +125,27 @@ export default function ServerDetail() {
     } finally {
       setRconBusy(false);
     }
+  };
+
+  const runRcon = async (e: FormEvent) => {
+    e.preventDefault();
+    const cmd = command.trim();
+    if (!cmd) return;
+    setCommand('');
+    await sendToConsole(cmd);
+  };
+
+  const pickCommand = (c: GameCommand) => {
+    setSelectedCmd(selectedCmd?.command === c.command ? null : c);
+    setCmdValues({});
+  };
+
+  const runPaletteCommand = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedCmd) return;
+    const cmd = buildCommand(selectedCmd, cmdValues);
+    if (selectedCmd.destructive && !window.confirm(`Send "${cmd}" to ${server.name}?`)) return;
+    await sendToConsole(cmd);
   };
 
   const broadcast = async (e: FormEvent) => {
@@ -146,6 +170,7 @@ export default function ServerDetail() {
       rcon_port: String(server.rcon_port || ''),
       rcon_password: server.rcon_password || '',
       broadcast_template: server.broadcast_template || '',
+      config_path: server.config_path || '',
     });
     setEditing(true);
   };
@@ -226,6 +251,45 @@ export default function ServerDetail() {
             {!server.rcon_configured && (
               <div className="alert alert-warn">RCON is not configured for this server{isAdmin ? ' — set the host, port, and password in Settings below.' : '.'}</div>
             )}
+            {GAME_COMMANDS[server.game] && (
+              <div className="cmd-palette">
+                <div className="chip-list">
+                  {GAME_COMMANDS[server.game].map((c) => (
+                    <button
+                      key={c.command}
+                      type="button"
+                      className={`chip ${selectedCmd?.command === c.command ? 'chip-on' : ''} ${c.destructive ? 'chip-danger' : ''}`}
+                      onClick={() => pickCommand(c)}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                {selectedCmd && (
+                  <form className="cmd-form" onSubmit={runPaletteCommand}>
+                    <div className="hint">{selectedCmd.description}</div>
+                    <div className="cmd-form-row">
+                      {selectedCmd.params.map((p) => (
+                        <input
+                          key={p.name}
+                          value={cmdValues[p.name] || ''}
+                          onChange={(e) => setCmdValues({ ...cmdValues, [p.name]: e.target.value })}
+                          placeholder={p.placeholder}
+                          required={p.required}
+                        />
+                      ))}
+                      <button
+                        className={`btn ${selectedCmd.destructive ? 'btn-danger' : 'btn-primary'}`}
+                        disabled={rconBusy}
+                      >
+                        Run {selectedCmd.label}
+                      </button>
+                    </div>
+                    <div className="hint mono">{buildCommand(selectedCmd, cmdValues)}</div>
+                  </form>
+                )}
+              </div>
+            )}
             <div className="console">
               {consoleLines.length === 0 && <div className="muted">Enter a command below to get started.</div>}
               {consoleLines.map((line, i) => (
@@ -259,6 +323,10 @@ export default function ServerDetail() {
         </>
       )}
 
+      {isAdmin && server.game === 'palworld' && (
+        <PalworldSettings serverId={server.id} serverState={state} />
+      )}
+
       {isAdmin && (
         <div className="card">
           <div className="card-head-row">
@@ -278,6 +346,11 @@ export default function ServerDetail() {
               <label>RCON host<input value={form.rcon_host} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Unraid IP or container IP" /></label>
               <label>RCON port<input value={form.rcon_port} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} type="number" /></label>
               <label>RCON password<input value={form.rcon_password} onChange={(e) => setForm({ ...form, rcon_password: e.target.value })} type="password" /></label>
+              <label className="span-2">
+                Game config file path
+                <input value={form.config_path} onChange={(e) => setForm({ ...form, config_path: e.target.value })} placeholder="Auto-detected for Palworld; e.g. /palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini" />
+                <span className="hint">Path inside the game container. Leave blank to auto-detect.</span>
+              </label>
               <label className="span-2">
                 Broadcast command template
                 <input value={form.broadcast_template} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} placeholder="say {message}" />

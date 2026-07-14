@@ -17,6 +17,7 @@ export interface GameServer {
   game: string;
   container_name: string;
   broadcast_template: string;
+  config_path: string;
   rcon_configured: boolean;
   state: ContainerState;
   statusText: string;

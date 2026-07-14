@@ -10,7 +10,8 @@ A self-hosted manager for game servers running as Docker containers on Unraid (o
 - **Import game servers** — pick any Docker container on the host (Palworld, Satisfactory, Minecraft, …) and manage it as a game server with live status monitoring.
 - **Web interface** — start, stop, restart, pause and resume servers; live status via WebSocket; CPU/memory stats.
 - **User management** — admin and user roles, with per-server permissions (view / control / RCON) for each user.
-- **RCON** — built-in console for Source-RCON games (Palworld, Minecraft, Rust, ARK, 7DtD, …) plus one-click in-game broadcast messages with per-game command templates.
+- **RCON** — built-in console for Source-RCON games (Palworld, Minecraft, Rust, ARK, 7DtD, …) plus one-click in-game broadcast messages with per-game command templates. Palworld servers get a full command palette (kick/ban, save, graceful shutdown, …).
+- **Palworld settings editor** — reads `PalWorldSettings.ini` directly from inside the game container (auto-detecting its location, no extra mounts), and lets you view and edit every setting with sliders, toggles, and dropdowns, then writes it back.
 - **Discord bot** — auto-updating status embed with start/stop/restart buttons, slash commands (`/servers`, `/server`, `/rcon`, `/broadcast`), all gated by roles, channels, and per-command toggles configured in the web UI.
 
 ## Tech stack

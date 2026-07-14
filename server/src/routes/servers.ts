@@ -3,7 +3,8 @@ import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../
 import {
   createServer, deleteServer, getServerById, listServers, updateServer,
 } from '../db';
-import { getStats, listContainers, performAction } from '../docker';
+import { getStats, listContainers, performAction, readContainerFile, writeContainerFile } from '../docker';
+import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { sendBroadcast, sendRconCommand } from '../rcon';
 import type { GameServer, ServerAction } from '../types';
@@ -22,6 +23,7 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     game: s.game,
     container_name: s.container_name,
     broadcast_template: s.broadcast_template,
+    config_path: s.config_path,
     rcon_configured: !!(s.rcon_host && s.rcon_port),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
@@ -68,6 +70,7 @@ router.post('/', requireAdmin, (req, res) => {
       rcon_port: parseInt(rcon_port, 10) || 0,
       rcon_password: rcon_password || '',
       broadcast_template: broadcast_template ?? 'say {message}',
+      config_path: req.body?.config_path || '',
     });
     monitor.refresh().catch(() => {});
     res.json({ server: publicServer(server, true) });
@@ -111,6 +114,7 @@ router.put('/:id', requireAdmin, (req, res) => {
     rcon_port: b.rcon_port !== undefined ? parseInt(b.rcon_port, 10) || 0 : server.rcon_port,
     rcon_password: b.rcon_password ?? server.rcon_password,
     broadcast_template: b.broadcast_template ?? server.broadcast_template,
+    config_path: b.config_path ?? server.config_path,
   });
   monitor.refresh().catch(() => {});
   res.json({ server: publicServer(getServerById(server.id)!, true) });
@@ -179,6 +183,75 @@ router.post('/:id/broadcast', requireServerPermission('rcon'), asyncRoute(async 
   }
   const response = await sendBroadcast(server, message);
   res.json({ response });
+}));
+
+// Known PalWorldSettings.ini locations across popular Palworld Docker images
+const PALWORLD_CONFIG_CANDIDATES = [
+  '/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
+  '/serverdata/serverfiles/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
+  '/data/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
+  '/home/steam/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
+];
+
+async function resolveConfigPath(server: GameServer): Promise<{ path: string; raw: string }> {
+  if (server.config_path) {
+    return { path: server.config_path, raw: await readContainerFile(server.container_name, server.config_path) };
+  }
+  for (const candidate of PALWORLD_CONFIG_CANDIDATES) {
+    try {
+      const raw = await readContainerFile(server.container_name, candidate);
+      updateServer(server.id, { ...server, config_path: candidate });
+      return { path: candidate, raw };
+    } catch {
+      /* try the next known location */
+    }
+  }
+  throw Object.assign(
+    new Error(
+      'Could not find PalWorldSettings.ini in the container. Set the config file path in the server settings.'
+    ),
+    { statusCode: 404 }
+  );
+}
+
+/** Read the game config file from inside the container (admin only). */
+router.get('/:id/config', requireAdmin, asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const { path: configPath, raw } = await resolveConfigPath(server);
+  const entries = parseOptionSettings(raw);
+  res.json({
+    path: configPath,
+    settings: Object.fromEntries((entries || []).map((e) => [e.key, e.value])),
+    empty: entries === null,
+  });
+}));
+
+/** Write updated settings back into the container's config file (admin only). */
+router.put('/:id/config', requireAdmin, asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const settings = req.body?.settings;
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    res.status(400).json({ error: 'settings must be an object of key/value pairs' });
+    return;
+  }
+  const updates: Record<string, string> = {};
+  for (const [k, v] of Object.entries(settings)) {
+    if (!/^[A-Za-z0-9_]+$/.test(k)) continue;
+    updates[k] = String(v);
+  }
+  const { path: configPath, raw } = await resolveConfigPath(server);
+  const next = applySettings(raw, updates);
+  await writeContainerFile(server.container_name, configPath, next);
+  const state = monitor.get(server.id)?.state;
+  res.json({ ok: true, path: configPath, restartRequired: state === 'running' });
 }));
 
 export default router;

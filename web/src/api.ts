@@ -68,6 +68,12 @@ export const api = {
     request<{ response: string }>('POST', `/api/servers/${id}/rcon`, { command }),
   sendBroadcast: (id: number, message: string) =>
     request<{ response: string }>('POST', `/api/servers/${id}/broadcast`, { message }),
+  getServerConfig: (id: number) =>
+    request<{ path: string; settings: Record<string, string>; empty: boolean }>(
+      'GET', `/api/servers/${id}/config`),
+  saveServerConfig: (id: number, settings: Record<string, string>) =>
+    request<{ ok: boolean; path: string; restartRequired: boolean }>(
+      'PUT', `/api/servers/${id}/config`, { settings }),
 
   // users
   listUsers: () => request<{ users: User[] }>('GET', '/api/users'),
