@@ -77,7 +77,10 @@ a { color: var(--accent); text-decoration: none; }
 .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
 /* Server grid */
-.server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+@media (max-width: 500px) {
+  .server-grid { grid-template-columns: 1fr; }
+}
 .server-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .server-name { font-weight: 700; font-size: 1.1rem; color: var(--text); }
 .server-name:hover { color: var(--accent); }
@@ -134,6 +137,64 @@ a { color: var(--accent); text-decoration: none; }
 .btn-ghost:hover { color: var(--text); }
 .btn-small { padding: 4px 10px; font-size: 0.8rem; }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.controls-row { flex-wrap: nowrap; }
+.controls-row .btn { flex: 1 1 0; white-space: nowrap; padding-left: 6px; padding-right: 6px; }
+
+/* Mini stats on server cards */
+.server-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.mini-stat {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mini-stat-label { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em; }
+.mini-stat-value { font-weight: 700; font-size: 1.02rem; }
+
+/* Player chips */
+.player-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+.player-chip {
+  background: rgba(59, 165, 93, 0.12);
+  border: 1px solid rgba(59, 165, 93, 0.35);
+  color: #7fd39a;
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.player-chip.muted { background: var(--bg-input); border-color: var(--border); color: var(--text-muted); }
+
+/* Tabs */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 14px 0 18px;
+}
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 9px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); }
+.tab-active { color: var(--text); border-bottom-color: var(--accent); }
+
+.danger-zone { border-color: rgba(237, 66, 69, 0.35); }
 
 /* Forms */
 label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; font-size: 0.87rem; margin-bottom: 10px; }

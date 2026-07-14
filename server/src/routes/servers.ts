@@ -27,6 +27,11 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     rcon_configured: !!(s.rcon_host && s.rcon_port),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
+    cpuPercent: status?.cpuPercent ?? null,
+    memUsageBytes: status?.memUsageBytes ?? null,
+    memLimitBytes: status?.memLimitBytes ?? null,
+    playerCount: status?.playerCount ?? null,
+    players: status?.players ?? null,
     created_at: s.created_at,
   };
   if (!includeSecrets) return base;

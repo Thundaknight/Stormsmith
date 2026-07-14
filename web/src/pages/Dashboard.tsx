@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import ServerCard from '../components/ServerCard';
+import { mergeLive } from '../format';
 import type { GameServer } from '../types';
 import { useStatusSocket } from '../useStatusSocket';
 
@@ -24,10 +25,7 @@ export default function Dashboard() {
   useEffect(load, [load]);
 
   // Merge live WebSocket state into the server list
-  const merged = servers.map((s) => {
-    const live = statuses.get(s.id);
-    return live ? { ...s, state: live.state, statusText: live.statusText } : s;
-  });
+  const merged = servers.map((s) => mergeLive(s, statuses.get(s.id)));
 
   return (
     <div>

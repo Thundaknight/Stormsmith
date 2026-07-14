@@ -21,6 +21,11 @@ export interface GameServer {
   rcon_configured: boolean;
   state: ContainerState;
   statusText: string;
+  cpuPercent?: number | null;
+  memUsageBytes?: number | null;
+  memLimitBytes?: number | null;
+  playerCount?: number | null;
+  players?: string[] | null;
   can_control: boolean;
   can_rcon: boolean;
   rcon_host?: string;
@@ -36,6 +41,11 @@ export interface ServerStatusUpdate {
   containerName: string;
   state: ContainerState;
   statusText: string;
+  cpuPercent: number | null;
+  memUsageBytes: number | null;
+  memLimitBytes: number | null;
+  playerCount: number | null;
+  players: string[] | null;
 }
 
 export interface ContainerSummary {

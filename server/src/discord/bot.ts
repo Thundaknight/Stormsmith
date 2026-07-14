@@ -166,7 +166,10 @@ class DiscordBot {
     }
     embed.setDescription(
       statuses
-        .map((s) => `${STATE_EMOJI[s.state] || '❓'} **${s.name}** (${s.game}) — ${s.state}${s.statusText ? ` · ${s.statusText}` : ''}`)
+        .map((s) => {
+          const playerInfo = s.playerCount != null ? ` · ${s.playerCount} player${s.playerCount === 1 ? '' : 's'}` : '';
+          return `${STATE_EMOJI[s.state] || '❓'} **${s.name}** (${s.game}) — ${s.state}${playerInfo}${s.statusText ? ` · ${s.statusText}` : ''}`;
+        })
         .join('\n')
     );
     return embed;

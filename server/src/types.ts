@@ -53,6 +53,11 @@ export interface ServerStatus {
   containerName: string;
   state: ContainerState;
   statusText: string;
+  cpuPercent: number | null;
+  memUsageBytes: number | null;
+  memLimitBytes: number | null;
+  playerCount: number | null;
+  players: string[] | null;
 }
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause';
