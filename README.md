@@ -1,6 +1,9 @@
-# Server Manager
+# Stormsmith
 
 A self-hosted manager for game servers running as Docker containers on Unraid (or any Docker host).
+
+- **Docker Hub:** [`thundaknight/stormsmith`](https://hub.docker.com/r/thundaknight/stormsmith)
+- **Source:** [github.com/Thundaknight/Stormsmith](https://github.com/Thundaknight/Stormsmith)
 
 **Features**
 
@@ -18,30 +21,26 @@ A self-hosted manager for game servers running as Docker containers on Unraid (o
 
 ## Deploying on Unraid
 
-1. Build the image (on any machine with Docker, or directly on Unraid):
-
-   ```sh
-   docker build -t server-manager .
-   ```
-
-2. Run it on Unraid with the Docker socket mounted:
+1. Run the published image with the Docker socket mounted:
 
    ```sh
    docker run -d \
-     --name server-manager \
+     --name stormsmith \
      -p 8080:8080 \
      -v /var/run/docker.sock:/var/run/docker.sock \
-     -v /mnt/user/appdata/server-manager:/app/data \
+     -v /mnt/user/appdata/stormsmith:/app/data \
      --restart unless-stopped \
-     server-manager
+     thundaknight/stormsmith:latest
    ```
 
-   In the Unraid UI you can add it as a custom container with the same two mappings:
+   In the Unraid UI you can add it as a custom container instead — repository `thundaknight/stormsmith:latest` with the same mappings:
    - Path: `/var/run/docker.sock` → `/var/run/docker.sock`
-   - Path: `/mnt/user/appdata/server-manager` → `/app/data`
+   - Path: `/mnt/user/appdata/stormsmith` → `/app/data`
    - Port: `8080` → `8080`
 
-3. Open `http://<unraid-ip>:8080` and create the initial admin account (first visit only).
+2. Open `http://<unraid-ip>:8080` and create the initial admin account (first visit only).
+
+To build the image yourself instead of pulling from Docker Hub: `docker build -t thundaknight/stormsmith .`
 
 > **Security note:** mounting the Docker socket gives this container control over Docker on the host. Keep the web UI on your LAN or behind a reverse proxy with HTTPS if you expose it.
 
