@@ -1,0 +1,16 @@
+{
+  "name": "server-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Game server manager for Docker on Unraid — web UI, RCON, and Discord bot",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "node server/dist/index.js"
+  }
+}
