@@ -4,16 +4,18 @@ import { api } from '../api';
 import { formatBytes } from '../format';
 import type { GameServer, ServerAction } from '../types';
 import { GAME_PRESETS } from '../types';
+import CopyButton from './CopyButton';
 import StatusBadge from './StatusBadge';
 
 interface Props {
   server: GameServer;
+  publicIp: string;
   onError: (message: string) => void;
 }
 
 const MAX_PLAYER_CHIPS = 10;
 
-export default function ServerCard({ server, onError }: Props) {
+export default function ServerCard({ server, publicIp, onError }: Props) {
   const [busy, setBusy] = useState<ServerAction | null>(null);
 
   const act = async (action: ServerAction) => {
@@ -45,6 +47,14 @@ export default function ServerCard({ server, onError }: Props) {
         </div>
         <StatusBadge state={server.state} />
       </div>
+
+      {publicIp && server.game_port > 0 && (
+        <div className="server-address">
+          <span className="muted">Address</span>
+          <span className="mono">{publicIp}:{server.game_port}</span>
+          <CopyButton text={`${publicIp}:${server.game_port}`} />
+        </div>
+      )}
 
       <div className="server-stats-row">
         <div className="mini-stat">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import CopyButton from '../components/CopyButton';
 import ServerCard from '../components/ServerCard';
 import { mergeLive } from '../format';
 import type { GameServer } from '../types';
@@ -10,6 +11,7 @@ import { useStatusSocket } from '../useStatusSocket';
 export default function Dashboard() {
   const { user } = useAuth();
   const [servers, setServers] = useState<GameServer[]>([]);
+  const [publicIp, setPublicIp] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const { statuses, dockerError } = useStatusSocket(true);
@@ -17,7 +19,10 @@ export default function Dashboard() {
   const load = useCallback(() => {
     api
       .listServers()
-      .then((r) => setServers(r.servers))
+      .then((r) => {
+        setServers(r.servers);
+        setPublicIp(r.publicIp || '');
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoaded(true));
   }, []);
@@ -30,7 +35,16 @@ export default function Dashboard() {
   return (
     <div>
       <div className="page-head">
-        <h1>Dashboard</h1>
+        <div>
+          <h1>Dashboard</h1>
+          {publicIp && (
+            <div className="ip-banner">
+              <span className="muted">Public IP:</span>
+              <span className="mono">{publicIp}</span>
+              <CopyButton text={publicIp} />
+            </div>
+          )}
+        </div>
         {user?.role === 'admin' && (
           <Link to="/import" className="btn btn-primary">+ Import Server</Link>
         )}
@@ -49,7 +63,7 @@ export default function Dashboard() {
       )}
       <div className="server-grid">
         {merged.map((s) => (
-          <ServerCard key={s.id} server={s} onError={setError} />
+          <ServerCard key={s.id} server={s} publicIp={publicIp} onError={setError} />
         ))}
       </div>
     </div>

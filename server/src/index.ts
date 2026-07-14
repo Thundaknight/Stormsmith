@@ -5,6 +5,8 @@ import path from 'path';
 import { config } from './config';
 import { initDb } from './db';
 import { monitor } from './monitor';
+import { initPublicIp } from './publicIp';
+import { startScheduler } from './scheduler';
 import { initWs } from './ws';
 import { discordBot } from './discord/bot';
 import authRoutes from './routes/auth';
@@ -35,6 +37,8 @@ if (fs.existsSync(webDist)) {
 const httpServer = http.createServer(app);
 initWs(httpServer);
 monitor.start();
+initPublicIp();
+startScheduler();
 discordBot.start().catch((err) => console.error('[discord] startup error:', err));
 
 httpServer.listen(config.port, () => {

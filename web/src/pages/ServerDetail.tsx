@@ -48,6 +48,7 @@ export default function ServerDetail() {
 
   // Settings tab form
   const [form, setForm] = useState<Record<string, string>>({});
+  const [restartEnabled, setRestartEnabled] = useState(false);
   const [settingsNotice, setSettingsNotice] = useState('');
 
   const initForm = useCallback((s: GameServer) => {
@@ -60,7 +61,10 @@ export default function ServerDetail() {
       rcon_password: s.rcon_password || '',
       broadcast_template: s.broadcast_template || '',
       config_path: s.config_path || '',
+      game_port: s.game_port ? String(s.game_port) : '',
+      restart_time: s.restart_time || '04:00',
     });
+    setRestartEnabled(!!s.restart_enabled);
   }, []);
 
   const load = useCallback(() => {
@@ -160,7 +164,7 @@ export default function ServerDetail() {
     setError('');
     setSettingsNotice('');
     try {
-      const r = await api.updateServer(server.id, form);
+      const r = await api.updateServer(server.id, { ...form, restart_enabled: restartEnabled });
       setServer({ ...server, ...r.server });
       initForm({ ...server, ...r.server });
       setSettingsNotice('✅ Settings saved');
@@ -377,6 +381,11 @@ export default function ServerDetail() {
                 <input value={form.container_name || ''} onChange={(e) => setForm({ ...form, container_name: e.target.value })} required />
               </label>
               <label>
+                Game port
+                <input type="number" value={form.game_port || ''} onChange={(e) => setForm({ ...form, game_port: e.target.value })} placeholder="e.g. 8211 for Palworld" />
+                <span className="hint">Shown with the public IP as the join address.</span>
+              </label>
+              <label>
                 RCON host
                 <input value={form.rcon_host || ''} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" />
               </label>
@@ -398,6 +407,22 @@ export default function ServerDetail() {
                 <input value={form.broadcast_template || ''} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} placeholder="say {message}" />
                 <span className="hint">Use {'{message}'} for the text, or {'{message_underscored}'} for games (like Palworld) that need spaces replaced.</span>
               </label>
+              <div className="span-2 restart-schedule">
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={restartEnabled} onChange={(e) => setRestartEnabled(e.target.checked)} />
+                  Scheduled daily restart
+                </label>
+                {restartEnabled && (
+                  <label className="restart-time">
+                    Restart time
+                    <input type="time" value={form.restart_time || '04:00'} onChange={(e) => setForm({ ...form, restart_time: e.target.value })} required />
+                  </label>
+                )}
+                <span className="hint">
+                  Restarts the container every day at this time. If RCON is configured, players are warned in-game
+                  30 minutes, 5 minutes, and 1 minute before the restart.
+                </span>
+              </div>
               <div className="btn-row span-2">
                 <button className="btn btn-primary" type="submit">Save settings</button>
                 <button className="btn" type="button" onClick={() => initForm(server)}>Reset</button>

@@ -19,5 +19,6 @@ export function mergeLive(server: GameServer, live?: ServerStatusUpdate): GameSe
     memLimitBytes: live.memLimitBytes,
     playerCount: live.playerCount,
     players: live.players,
+    startedAt: live.startedAt,
   };
 }

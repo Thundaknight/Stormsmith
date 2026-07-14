@@ -6,6 +6,7 @@ import {
 import { getDiscordConfig, getServerById, listServers, updateDiscordConfig } from '../db';
 import { performAction } from '../docker';
 import { monitor } from '../monitor';
+import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
 import type { ContainerState, DiscordConfig, ServerAction, ServerStatus } from '../types';
 
@@ -13,6 +14,31 @@ const STATE_EMOJI: Record<ContainerState, string> = {
   running: '🟢', paused: '🟡', restarting: '🔄', exited: '🔴',
   created: '⚪', dead: '💀', removing: '🗑️', not_found: '❓',
 };
+
+const GAME_LABELS: Record<string, string> = {
+  palworld: 'Palworld',
+  minecraft: 'Minecraft',
+  satisfactory: 'Satisfactory',
+  valheim: 'Valheim',
+  rust: 'Rust',
+  ark: 'ARK: Survival',
+  '7dtd': '7 Days to Die',
+  custom: 'Custom',
+};
+
+const MAX_EMBED_PLAYERS = 10;
+
+function formatUptime(startedAt: string | null): string {
+  if (!startedAt) return '—';
+  const ms = Date.now() - Date.parse(startedAt);
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const days = Math.floor(ms / 86_400_000);
+  const hours = Math.floor(ms / 3_600_000) % 24;
+  const minutes = Math.floor(ms / 60_000) % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
 
 function parseIds(json: string): string[] {
   try {
@@ -164,14 +190,27 @@ class DiscordBot {
       embed.setDescription('No servers have been imported yet.');
       return embed;
     }
-    embed.setDescription(
-      statuses
-        .map((s) => {
-          const playerInfo = s.playerCount != null ? ` · ${s.playerCount} player${s.playerCount === 1 ? '' : 's'}` : '';
-          return `${STATE_EMOJI[s.state] || '❓'} **${s.name}** (${s.game}) — ${s.state}${playerInfo}${s.statusText ? ` · ${s.statusText}` : ''}`;
-        })
-        .join('\n')
-    );
+
+    const publicIp = getPublicIp();
+    // Discord allows at most 25 fields per embed
+    for (const s of statuses.slice(0, 25)) {
+      const lines = [
+        `**Game:** ${GAME_LABELS[s.game] || s.game}`,
+        `**Uptime:** ${s.state === 'running' ? formatUptime(s.startedAt) : '—'}`,
+      ];
+      if (publicIp && s.gamePort) lines.push(`**Server IP:** \`${publicIp}:${s.gamePort}\``);
+      lines.push(`**Players:** ${s.playerCount != null ? s.playerCount : '—'}`);
+      if (s.players && s.players.length > 0) {
+        const shown = s.players.slice(0, MAX_EMBED_PLAYERS).join(', ');
+        const extra = s.players.length > MAX_EMBED_PLAYERS ? ` +${s.players.length - MAX_EMBED_PLAYERS} more` : '';
+        lines.push(shown + extra);
+      }
+      embed.addFields({
+        name: `${STATE_EMOJI[s.state] || '❓'} ${s.name}`,
+        value: lines.join('\n').slice(0, 1024),
+        inline: false,
+      });
+    }
     return embed;
   }
 

@@ -51,7 +51,8 @@ export const api = {
   me: () => request<{ user: { userId: number; username: string; role: string } }>('GET', '/api/auth/me'),
 
   // servers
-  listServers: () => request<{ servers: GameServer[]; dockerError: string }>('GET', '/api/servers'),
+  listServers: () =>
+    request<{ servers: GameServer[]; dockerError: string; publicIp: string }>('GET', '/api/servers'),
   getServer: (id: number) => request<{ server: GameServer }>('GET', `/api/servers/${id}`),
   availableContainers: () =>
     request<{ containers: ContainerSummary[] }>('GET', '/api/servers/available-containers'),

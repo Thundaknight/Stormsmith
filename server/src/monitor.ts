@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { config } from './config';
 import { listServers } from './db';
-import { getStats, listContainers } from './docker';
+import { getStartedAt, getStats, listContainers } from './docker';
 import type { ContainerStats } from './docker';
 import { fetchPlayers, supportsPlayerList } from './games/players';
 import type { ServerStatus } from './types';
@@ -21,6 +21,7 @@ class StatusMonitor extends EventEmitter {
   private lastError = '';
   private polling = false;
   private playerCache = new Map<number, { at: number; players: string[] | null }>();
+  private startedAtCache = new Map<number, string | null>();
 
   start(): void {
     if (this.timer) return;
@@ -83,6 +84,13 @@ class StatusMonitor extends EventEmitter {
       if (result.status === 'fulfilled') statsMap.set(runningServers[i].id, result.value);
     });
 
+    // Container start times for uptime; fetched once per run and cleared when not running
+    const startedDue = runningServers.filter((s) => !this.startedAtCache.has(s.id));
+    const startedResults = await Promise.allSettled(startedDue.map((s) => getStartedAt(s.container_name)));
+    startedResults.forEach((result, i) => {
+      this.startedAtCache.set(startedDue[i].id, result.status === 'fulfilled' ? result.value : null);
+    });
+
     // Player lists over RCON, throttled per server
     const now = Date.now();
     const playersDue = runningServers.filter(
@@ -102,7 +110,10 @@ class StatusMonitor extends EventEmitter {
       seen.add(s.id);
       const c = byName.get(s.container_name);
       const isRunning = c?.state === 'running';
-      if (!isRunning) this.playerCache.delete(s.id);
+      if (!isRunning) {
+        this.playerCache.delete(s.id);
+        this.startedAtCache.delete(s.id);
+      }
       const stats = statsMap.get(s.id);
       const players = isRunning ? this.playerCache.get(s.id)?.players ?? null : null;
       const next: ServerStatus = {
@@ -117,6 +128,8 @@ class StatusMonitor extends EventEmitter {
         memLimitBytes: stats?.memLimitBytes ?? null,
         players,
         playerCount: players ? players.length : null,
+        gamePort: s.game_port,
+        startedAt: isRunning ? this.startedAtCache.get(s.id) ?? null : null,
       };
       const prev = this.statuses.get(s.id);
       if (!prev || prev.state !== next.state || prev.name !== next.name || prev.playerCount !== next.playerCount) {
@@ -128,6 +141,7 @@ class StatusMonitor extends EventEmitter {
       if (!seen.has(id)) {
         this.statuses.delete(id);
         this.playerCache.delete(id);
+        this.startedAtCache.delete(id);
         changed = true;
       }
     }

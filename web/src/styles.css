@@ -172,6 +172,31 @@ a { color: var(--accent); text-decoration: none; }
 }
 .player-chip.muted { background: var(--bg-input); border-color: var(--border); color: var(--text-muted); }
 
+/* Public IP + addresses */
+.ip-banner { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 0.9rem; }
+.server-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.88rem;
+}
+.copy-btn {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.copy-btn:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* Scheduled restart */
+.restart-schedule { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.restart-time { max-width: 220px; }
+
 /* Tabs */
 .tab-bar {
   display: flex;

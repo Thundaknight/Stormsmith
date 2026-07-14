@@ -17,6 +17,7 @@ export default function ImportServer() {
   const [form, setForm] = useState({
     name: '',
     game: 'custom',
+    game_port: '',
     rcon_host: '',
     rcon_port: '',
     rcon_password: '',
@@ -47,6 +48,7 @@ export default function ImportServer() {
       ...f,
       game,
       name: f.name || defaultName || '',
+      game_port: preset.gamePort ? String(preset.gamePort) : f.game_port,
       rcon_port: preset.rconPort ? String(preset.rconPort) : f.rcon_port,
       broadcast_template: preset.broadcast,
     }));
@@ -104,6 +106,11 @@ export default function ImportServer() {
               <select value={form.game} onChange={(e) => applyGame(e.target.value)}>
                 {Object.entries(GAME_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
+            </label>
+            <label>
+              Game port
+              <input type="number" value={form.game_port} onChange={(e) => setForm({ ...form, game_port: e.target.value })} />
+              <span className="hint">The port players join on; shown with your public IP.</span>
             </label>
             <label>RCON host<input value={form.rcon_host} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" /></label>
             <label>RCON port<input type="number" value={form.rcon_port} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} /></label>

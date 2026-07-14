@@ -6,6 +6,7 @@ import {
 import { getStats, listContainers, performAction, readContainerFile, writeContainerFile } from '../docker';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
+import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
 import type { GameServer, ServerAction } from '../types';
 import { asyncRoute } from './helpers';
@@ -24,6 +25,9 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     container_name: s.container_name,
     broadcast_template: s.broadcast_template,
     config_path: s.config_path,
+    game_port: s.game_port,
+    restart_enabled: !!s.restart_enabled,
+    restart_time: s.restart_time,
     rcon_configured: !!(s.rcon_host && s.rcon_port),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
@@ -32,6 +36,7 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     memLimitBytes: status?.memLimitBytes ?? null,
     playerCount: status?.playerCount ?? null,
     players: status?.players ?? null,
+    startedAt: status?.startedAt ?? null,
     created_at: s.created_at,
   };
   if (!includeSecrets) return base;
@@ -49,6 +54,7 @@ router.get('/', (req, res) => {
       can_rcon: userCan(user, s.id, 'rcon'),
     })),
     dockerError: monitor.getLastError(),
+    publicIp: getPublicIp(),
   });
 });
 
@@ -76,6 +82,9 @@ router.post('/', requireAdmin, (req, res) => {
       rcon_password: rcon_password || '',
       broadcast_template: broadcast_template ?? 'say {message}',
       config_path: req.body?.config_path || '',
+      game_port: parseInt(req.body?.game_port, 10) || 0,
+      restart_enabled: 0,
+      restart_time: '04:00',
     });
     monitor.refresh().catch(() => {});
     res.json({ server: publicServer(server, true) });
@@ -120,6 +129,12 @@ router.put('/:id', requireAdmin, (req, res) => {
     rcon_password: b.rcon_password ?? server.rcon_password,
     broadcast_template: b.broadcast_template ?? server.broadcast_template,
     config_path: b.config_path ?? server.config_path,
+    game_port: b.game_port !== undefined ? parseInt(b.game_port, 10) || 0 : server.game_port,
+    restart_enabled: b.restart_enabled !== undefined ? (b.restart_enabled ? 1 : 0) : server.restart_enabled,
+    restart_time:
+      b.restart_time !== undefined && /^\d{1,2}:\d{2}$/.test(String(b.restart_time))
+        ? String(b.restart_time)
+        : server.restart_time,
   });
   monitor.refresh().catch(() => {});
   res.json({ server: publicServer(getServerById(server.id)!, true) });

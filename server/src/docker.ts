@@ -61,6 +61,12 @@ export async function performAction(containerName: string, action: ServerAction)
   }
 }
 
+/** When the container's current run started (ISO timestamp), for uptime display. */
+export async function getStartedAt(containerName: string): Promise<string | null> {
+  const info = await docker.getContainer(containerName).inspect();
+  return info?.State?.StartedAt || null;
+}
+
 /**
  * Reads a file from inside a container using the archive API
  * (works even when the container is stopped; no volume mounts needed).

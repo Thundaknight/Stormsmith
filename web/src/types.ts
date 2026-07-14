@@ -18,6 +18,9 @@ export interface GameServer {
   container_name: string;
   broadcast_template: string;
   config_path: string;
+  game_port: number;
+  restart_enabled: boolean;
+  restart_time: string;
   rcon_configured: boolean;
   state: ContainerState;
   statusText: string;
@@ -26,6 +29,7 @@ export interface GameServer {
   memLimitBytes?: number | null;
   playerCount?: number | null;
   players?: string[] | null;
+  startedAt?: string | null;
   can_control: boolean;
   can_rcon: boolean;
   rcon_host?: string;
@@ -46,6 +50,8 @@ export interface ServerStatusUpdate {
   memLimitBytes: number | null;
   playerCount: number | null;
   players: string[] | null;
+  gamePort: number;
+  startedAt: string | null;
 }
 
 export interface ContainerSummary {
@@ -85,13 +91,13 @@ export interface DiscordConfigView {
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause';
 
-export const GAME_PRESETS: Record<string, { label: string; rconPort: number; broadcast: string }> = {
-  palworld: { label: 'Palworld', rconPort: 25575, broadcast: 'Broadcast {message_underscored}' },
-  minecraft: { label: 'Minecraft', rconPort: 25575, broadcast: 'say {message}' },
-  satisfactory: { label: 'Satisfactory', rconPort: 0, broadcast: '' },
-  valheim: { label: 'Valheim', rconPort: 0, broadcast: '' },
-  rust: { label: 'Rust', rconPort: 28016, broadcast: 'say {message}' },
-  ark: { label: 'ARK: Survival', rconPort: 27020, broadcast: 'ServerChat {message}' },
-  '7dtd': { label: '7 Days to Die', rconPort: 8081, broadcast: 'say "{message}"' },
-  custom: { label: 'Other / Custom', rconPort: 0, broadcast: 'say {message}' },
+export const GAME_PRESETS: Record<string, { label: string; rconPort: number; gamePort: number; broadcast: string }> = {
+  palworld: { label: 'Palworld', rconPort: 25575, gamePort: 8211, broadcast: 'Broadcast {message_underscored}' },
+  minecraft: { label: 'Minecraft', rconPort: 25575, gamePort: 25565, broadcast: 'say {message}' },
+  satisfactory: { label: 'Satisfactory', rconPort: 0, gamePort: 7777, broadcast: '' },
+  valheim: { label: 'Valheim', rconPort: 0, gamePort: 2456, broadcast: '' },
+  rust: { label: 'Rust', rconPort: 28016, gamePort: 28015, broadcast: 'say {message}' },
+  ark: { label: 'ARK: Survival', rconPort: 27020, gamePort: 7777, broadcast: 'ServerChat {message}' },
+  '7dtd': { label: '7 Days to Die', rconPort: 8081, gamePort: 26900, broadcast: 'say "{message}"' },
+  custom: { label: 'Other / Custom', rconPort: 0, gamePort: 0, broadcast: 'say {message}' },
 };

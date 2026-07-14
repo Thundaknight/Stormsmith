@@ -26,6 +26,9 @@ export function initDb(): void {
       rcon_password TEXT NOT NULL DEFAULT '',
       broadcast_template TEXT NOT NULL DEFAULT 'say {message}',
       config_path TEXT NOT NULL DEFAULT '',
+      game_port INTEGER NOT NULL DEFAULT 0,
+      restart_enabled INTEGER NOT NULL DEFAULT 0,
+      restart_time TEXT NOT NULL DEFAULT '04:00',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -59,11 +62,15 @@ export function initDb(): void {
     INSERT OR IGNORE INTO discord_config (id) VALUES (1);
   `);
 
-  // Migration for databases created before config_path existed
+  // Migrations for databases created before these columns existed
   const serverCols = db.prepare('PRAGMA table_info(servers)').all() as Array<{ name: string }>;
-  if (!serverCols.some((c) => c.name === 'config_path')) {
-    db.exec("ALTER TABLE servers ADD COLUMN config_path TEXT NOT NULL DEFAULT ''");
-  }
+  const addColumn = (name: string, ddl: string) => {
+    if (!serverCols.some((c) => c.name === name)) db.exec(`ALTER TABLE servers ADD COLUMN ${ddl}`);
+  };
+  addColumn('config_path', "config_path TEXT NOT NULL DEFAULT ''");
+  addColumn('game_port', 'game_port INTEGER NOT NULL DEFAULT 0');
+  addColumn('restart_enabled', 'restart_enabled INTEGER NOT NULL DEFAULT 0');
+  addColumn('restart_time', "restart_time TEXT NOT NULL DEFAULT '04:00'");
 }
 
 // ---- Users ----
@@ -117,18 +124,26 @@ export function getServerById(id: number): GameServer | undefined {
 export function createServer(s: Omit<GameServer, 'id' | 'created_at'>): GameServer {
   const info = db
     .prepare(
-      `INSERT INTO servers (name, game, container_name, rcon_host, rcon_port, rcon_password, broadcast_template, config_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO servers (name, game, container_name, rcon_host, rcon_port, rcon_password, broadcast_template,
+       config_path, game_port, restart_enabled, restart_time)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template, s.config_path);
+    .run(
+      s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
+      s.config_path, s.game_port, s.restart_enabled, s.restart_time
+    );
   return getServerById(Number(info.lastInsertRowid))!;
 }
 
 export function updateServer(id: number, s: Omit<GameServer, 'id' | 'created_at'>): void {
   db.prepare(
     `UPDATE servers SET name = ?, game = ?, container_name = ?, rcon_host = ?, rcon_port = ?,
-     rcon_password = ?, broadcast_template = ?, config_path = ? WHERE id = ?`
-  ).run(s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template, s.config_path, id);
+     rcon_password = ?, broadcast_template = ?, config_path = ?, game_port = ?, restart_enabled = ?,
+     restart_time = ? WHERE id = ?`
+  ).run(
+    s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
+    s.config_path, s.game_port, s.restart_enabled, s.restart_time, id
+  );
 }
 
 export function deleteServer(id: number): void {

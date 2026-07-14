@@ -25,6 +25,9 @@ export interface GameServer {
   rcon_password: string;
   broadcast_template: string;
   config_path: string;
+  game_port: number;
+  restart_enabled: number;
+  restart_time: string;
   created_at: string;
 }
 
@@ -58,6 +61,8 @@ export interface ServerStatus {
   memLimitBytes: number | null;
   playerCount: number | null;
   players: string[] | null;
+  gamePort: number;
+  startedAt: string | null;
 }
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause';
