@@ -28,6 +28,8 @@ export interface GameServer {
   game_port: number;
   restart_enabled: number;
   restart_time: string;
+  restart_mode: string; // 'daily' | 'interval'
+  restart_interval_hours: number;
   created_at: string;
 }
 

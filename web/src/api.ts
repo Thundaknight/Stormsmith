@@ -1,5 +1,5 @@
 import type {
-  ContainerSummary, DiscordConfigView, GameServer, Permission, ServerAction, User,
+  ContainerSummary, DiscordConfigView, GameServer, ModEntry, Permission, ServerAction, User,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -75,6 +75,30 @@ export const api = {
   saveServerConfig: (id: number, settings: Record<string, string>) =>
     request<{ ok: boolean; path: string; restartRequired: boolean }>(
       'PUT', `/api/servers/${id}/config`, { settings }),
+
+  // mods
+  listMods: (id: number, folder: string) =>
+    request<{ path: string; folder: string; running: boolean; mods: ModEntry[] }>(
+      'GET', `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}`),
+  uploadMod: async (id: number, folder: string, file: File): Promise<{ ok: boolean; name: string }> => {
+    const res = await fetch(
+      `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}&filename=${encodeURIComponent(file.name)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+        },
+        body: file,
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, (data as any).error || `Upload failed (${res.status})`);
+    return data as { ok: boolean; name: string };
+  },
+  deleteMod: (id: number, folder: string, name: string) =>
+    request<{ ok: boolean }>(
+      'DELETE', `/api/servers/${id}/mods/${encodeURIComponent(name)}?folder=${encodeURIComponent(folder)}`),
 
   // users
   listUsers: () => request<{ users: User[] }>('GET', '/api/users'),

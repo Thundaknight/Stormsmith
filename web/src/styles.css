@@ -195,7 +195,12 @@ a { color: var(--accent); text-decoration: none; }
 
 /* Scheduled restart */
 .restart-schedule { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.restart-time { max-width: 220px; }
+.restart-options { display: flex; gap: 14px; flex-wrap: wrap; }
+.restart-options label { min-width: 160px; }
+
+/* Mods */
+.mods-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.mods-toolbar select { min-width: 220px; }
 
 /* Tabs */
 .tab-bar {

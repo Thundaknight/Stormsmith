@@ -1,5 +1,6 @@
 import Docker from 'dockerode';
 import path from 'path';
+import { PassThrough } from 'stream';
 import tar from 'tar-stream';
 import { config } from './config';
 import type { ContainerState, ServerAction } from './types';
@@ -59,6 +60,77 @@ export async function performAction(containerName: string, action: ServerAction)
       await container.unpause();
       break;
   }
+}
+
+/** Runs a command inside a running container and returns its output. */
+export async function execInContainer(
+  containerName: string,
+  cmd: string[]
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const container = docker.getContainer(containerName);
+  const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
+  const stream = await exec.start({});
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const outChunks: Buffer[] = [];
+  const errChunks: Buffer[] = [];
+  stdout.on('data', (c: Buffer) => outChunks.push(c));
+  stderr.on('data', (c: Buffer) => errChunks.push(c));
+  container.modem.demuxStream(stream, stdout, stderr);
+  await new Promise<void>((resolve, reject) => {
+    stream.on('end', resolve);
+    stream.on('close', resolve);
+    stream.on('error', reject);
+  });
+  const info = await exec.inspect();
+  return {
+    stdout: Buffer.concat(outChunks).toString('utf8'),
+    stderr: Buffer.concat(errChunks).toString('utf8'),
+    exitCode: info.ExitCode ?? 0,
+  };
+}
+
+export interface ContainerFileEntry {
+  name: string;
+  size: number;
+  isDir: boolean;
+}
+
+/** Lists a directory inside a running container (POSIX sh only, no GNU tools needed). */
+export async function listContainerDir(containerName: string, dirPath: string): Promise<ContainerFileEntry[]> {
+  const script =
+    'cd "$1" 2>/dev/null || exit 0; for f in * .[!.]*; do [ -e "$f" ] || continue; ' +
+    'if [ -d "$f" ]; then printf "d|0|%s\\n" "$f"; else printf "f|%s|%s\\n" "$(wc -c < "$f")" "$f"; fi; done';
+  const result = await execInContainer(containerName, ['sh', '-c', script, 'sh', dirPath]);
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [type, size, ...nameParts] = line.split('|');
+      return { name: nameParts.join('|'), size: parseInt(size, 10) || 0, isDir: type === 'd' };
+    })
+    .filter((e) => e.name);
+}
+
+/**
+ * Writes an uploaded file into a container directory using the archive API.
+ * `subDir` is created inside `parentDir` if missing (works on stopped containers).
+ */
+export async function putContainerFile(
+  containerName: string,
+  parentDir: string,
+  subDir: string,
+  fileName: string,
+  content: Buffer
+): Promise<void> {
+  const container = docker.getContainer(containerName);
+  const pack = tar.pack();
+  pack.entry({ name: `${subDir}/${fileName}` }, content);
+  pack.finalize();
+  const chunks: Buffer[] = [];
+  for await (const c of pack) chunks.push(c as Buffer);
+  await container.putArchive(Buffer.concat(chunks), { path: parentDir });
 }
 
 /** When the container's current run started (ISO timestamp), for uptime display. */

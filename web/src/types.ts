@@ -21,6 +21,8 @@ export interface GameServer {
   game_port: number;
   restart_enabled: boolean;
   restart_time: string;
+  restart_mode: 'daily' | 'interval';
+  restart_interval_hours: number;
   rcon_configured: boolean;
   state: ContainerState;
   statusText: string;
@@ -61,6 +63,12 @@ export interface ContainerSummary {
   state: ContainerState;
   statusText: string;
   imported: boolean;
+}
+
+export interface ModEntry {
+  name: string;
+  size: number;
+  isDir: boolean;
 }
 
 export interface Permission {

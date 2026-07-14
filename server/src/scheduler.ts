@@ -4,9 +4,12 @@ import { monitor } from './monitor';
 import { sendBroadcast } from './rcon';
 
 /**
- * Daily scheduled restarts. Servers with restart_enabled get restarted at
- * restart_time (server local time), with in-game RCON warnings broadcast
- * 30, 5, and 1 minute(s) beforehand.
+ * Scheduled restarts, with in-game RCON warnings broadcast 30, 5, and
+ * 1 minute(s) beforehand. Two modes per server:
+ * - 'daily': restart once a day at restart_time
+ * - 'interval': restart every restart_interval_hours, with restart_time as
+ *   the first restart of each day (e.g. 04:00 every 6h -> 04:00, 10:00,
+ *   16:00, 22:00, then 04:00 again the next day)
  */
 
 const TICK_MS = 30_000;
@@ -22,16 +25,39 @@ interface Occurrence {
 
 const occurrences = new Map<number, Occurrence>();
 
-function nextTarget(now: Date, time: string): Date | null {
+function anchorAt(base: Date, time: string): Date | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(time);
   if (!m) return null;
   const hours = parseInt(m[1], 10);
   const minutes = parseInt(m[2], 10);
   if (hours > 23 || minutes > 59) return null;
-  const target = new Date(now);
-  target.setHours(hours, minutes, 0, 0);
-  if (now.getTime() > target.getTime() + GRACE_MS) target.setDate(target.getDate() + 1);
-  return target;
+  const anchor = new Date(base);
+  anchor.setHours(hours, minutes, 0, 0);
+  return anchor;
+}
+
+/** The next (or just-passed, within grace) restart time for a server. */
+function nextTarget(now: Date, time: string, mode: string, intervalHours: number): Date | null {
+  const anchor = anchorAt(now, time);
+  if (!anchor) return null;
+
+  if (mode === 'interval') {
+    const hours = Math.min(Math.max(Math.floor(intervalHours) || 0, 1), 24);
+    const stepMs = hours * 3_600_000;
+    const dayMs = 86_400_000;
+    // Occurrences restart from the anchor each day, so times stay predictable
+    for (let dayOffset = -1; dayOffset <= 1; dayOffset++) {
+      const base = anchor.getTime() + dayOffset * dayMs;
+      for (let t = base; t < base + dayMs; t += stepMs) {
+        if (t >= now.getTime() - GRACE_MS) return new Date(t);
+      }
+    }
+    return null;
+  }
+
+  // daily
+  if (now.getTime() > anchor.getTime() + GRACE_MS) anchor.setDate(anchor.getDate() + 1);
+  return anchor;
 }
 
 async function tick(): Promise<void> {
@@ -44,9 +70,9 @@ async function tick(): Promise<void> {
     // Only restart (and warn) servers that are actually running
     if (monitor.get(server.id)?.state !== 'running') continue;
 
-    const target = nextTarget(now, server.restart_time);
+    const target = nextTarget(now, server.restart_time, server.restart_mode, server.restart_interval_hours);
     if (!target) continue;
-    const key = `${target.toDateString()} ${server.restart_time}`;
+    const key = String(target.getTime());
     let occ = occurrences.get(server.id);
     if (!occ || occ.key !== key) {
       occ = { key, warned: new Set(), restarted: false };

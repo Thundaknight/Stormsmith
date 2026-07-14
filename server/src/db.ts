@@ -29,6 +29,8 @@ export function initDb(): void {
       game_port INTEGER NOT NULL DEFAULT 0,
       restart_enabled INTEGER NOT NULL DEFAULT 0,
       restart_time TEXT NOT NULL DEFAULT '04:00',
+      restart_mode TEXT NOT NULL DEFAULT 'daily',
+      restart_interval_hours INTEGER NOT NULL DEFAULT 6,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -71,6 +73,8 @@ export function initDb(): void {
   addColumn('game_port', 'game_port INTEGER NOT NULL DEFAULT 0');
   addColumn('restart_enabled', 'restart_enabled INTEGER NOT NULL DEFAULT 0');
   addColumn('restart_time', "restart_time TEXT NOT NULL DEFAULT '04:00'");
+  addColumn('restart_mode', "restart_mode TEXT NOT NULL DEFAULT 'daily'");
+  addColumn('restart_interval_hours', 'restart_interval_hours INTEGER NOT NULL DEFAULT 6');
 }
 
 // ---- Users ----
@@ -125,12 +129,12 @@ export function createServer(s: Omit<GameServer, 'id' | 'created_at'>): GameServ
   const info = db
     .prepare(
       `INSERT INTO servers (name, game, container_name, rcon_host, rcon_port, rcon_password, broadcast_template,
-       config_path, game_port, restart_enabled, restart_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       config_path, game_port, restart_enabled, restart_time, restart_mode, restart_interval_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
-      s.config_path, s.game_port, s.restart_enabled, s.restart_time
+      s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours
     );
   return getServerById(Number(info.lastInsertRowid))!;
 }
@@ -139,10 +143,10 @@ export function updateServer(id: number, s: Omit<GameServer, 'id' | 'created_at'
   db.prepare(
     `UPDATE servers SET name = ?, game = ?, container_name = ?, rcon_host = ?, rcon_port = ?,
      rcon_password = ?, broadcast_template = ?, config_path = ?, game_port = ?, restart_enabled = ?,
-     restart_time = ? WHERE id = ?`
+     restart_time = ?, restart_mode = ?, restart_interval_hours = ? WHERE id = ?`
   ).run(
     s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
-    s.config_path, s.game_port, s.restart_enabled, s.restart_time, id
+    s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours, id
   );
 }
 

@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import ModsPanel from '../components/ModsPanel';
 import PalworldSettings from '../components/PalworldSettings';
 import StatusBadge from '../components/StatusBadge';
 import { formatBytes, mergeLive } from '../format';
@@ -17,7 +18,7 @@ interface ConsoleLine {
   text: string;
 }
 
-type Tab = 'controls' | 'config' | 'settings';
+type Tab = 'controls' | 'config' | 'mods' | 'settings';
 
 export default function ServerDetail() {
   const { id } = useParams();
@@ -63,6 +64,8 @@ export default function ServerDetail() {
       config_path: s.config_path || '',
       game_port: s.game_port ? String(s.game_port) : '',
       restart_time: s.restart_time || '04:00',
+      restart_mode: s.restart_mode || 'daily',
+      restart_interval_hours: String(s.restart_interval_hours || 6),
     });
     setRestartEnabled(!!s.restart_enabled);
   }, []);
@@ -180,7 +183,10 @@ export default function ServerDetail() {
   };
 
   const tabs: Array<{ id: Tab; label: string }> = [{ id: 'controls', label: 'Controls' }];
-  if (isAdmin && server.game === 'palworld') tabs.push({ id: 'config', label: 'Server Config' });
+  if (isAdmin && server.game === 'palworld') {
+    tabs.push({ id: 'config', label: 'Server Config' });
+    tabs.push({ id: 'mods', label: 'Mods' });
+  }
   if (isAdmin) tabs.push({ id: 'settings', label: 'Settings' });
 
   const commands = GAME_COMMANDS[server.game];
@@ -359,6 +365,10 @@ export default function ServerDetail() {
         <PalworldSettings serverId={server.id} serverState={state} />
       )}
 
+      {tab === 'mods' && isAdmin && server.game === 'palworld' && (
+        <ModsPanel serverId={server.id} serverState={state} />
+      )}
+
       {tab === 'settings' && isAdmin && (
         <>
           <div className="card">
@@ -410,17 +420,44 @@ export default function ServerDetail() {
               <div className="span-2 restart-schedule">
                 <label className="checkbox-label">
                   <input type="checkbox" checked={restartEnabled} onChange={(e) => setRestartEnabled(e.target.checked)} />
-                  Scheduled daily restart
+                  Scheduled restart
                 </label>
                 {restartEnabled && (
-                  <label className="restart-time">
-                    Restart time
-                    <input type="time" value={form.restart_time || '04:00'} onChange={(e) => setForm({ ...form, restart_time: e.target.value })} required />
-                  </label>
+                  <div className="restart-options">
+                    <label>
+                      Schedule
+                      <select
+                        value={form.restart_mode || 'daily'}
+                        onChange={(e) => setForm({ ...form, restart_mode: e.target.value })}
+                      >
+                        <option value="daily">Once a day at a set time</option>
+                        <option value="interval">Every X hours</option>
+                      </select>
+                    </label>
+                    {form.restart_mode === 'interval' && (
+                      <label>
+                        Every (hours)
+                        <input
+                          type="number"
+                          min={1}
+                          max={24}
+                          value={form.restart_interval_hours || '6'}
+                          onChange={(e) => setForm({ ...form, restart_interval_hours: e.target.value })}
+                          required
+                        />
+                      </label>
+                    )}
+                    <label>
+                      {form.restart_mode === 'interval' ? 'First restart at' : 'Restart time'}
+                      <input type="time" value={form.restart_time || '04:00'} onChange={(e) => setForm({ ...form, restart_time: e.target.value })} required />
+                    </label>
+                  </div>
                 )}
                 <span className="hint">
-                  Restarts the container every day at this time. If RCON is configured, players are warned in-game
-                  30 minutes, 5 minutes, and 1 minute before the restart.
+                  {form.restart_mode === 'interval'
+                    ? 'Restarts repeat from the start time each day (e.g. 04:00 every 6h → 04:00, 10:00, 16:00, 22:00).'
+                    : 'Restarts the container every day at this time.'}
+                  {' '}If RCON is configured, players are warned in-game 30 minutes, 5 minutes, and 1 minute before each restart.
                 </span>
               </div>
               <div className="btn-row span-2">

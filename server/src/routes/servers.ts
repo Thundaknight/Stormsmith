@@ -1,9 +1,12 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
   createServer, deleteServer, getServerById, listServers, updateServer,
 } from '../db';
-import { getStats, listContainers, performAction, readContainerFile, writeContainerFile } from '../docker';
+import {
+  execInContainer, getStats, listContainerDir, listContainers, performAction,
+  putContainerFile, readContainerFile, writeContainerFile,
+} from '../docker';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
@@ -28,6 +31,8 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     game_port: s.game_port,
     restart_enabled: !!s.restart_enabled,
     restart_time: s.restart_time,
+    restart_mode: s.restart_mode,
+    restart_interval_hours: s.restart_interval_hours,
     rcon_configured: !!(s.rcon_host && s.rcon_port),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
@@ -85,6 +90,8 @@ router.post('/', requireAdmin, (req, res) => {
       game_port: parseInt(req.body?.game_port, 10) || 0,
       restart_enabled: 0,
       restart_time: '04:00',
+      restart_mode: 'daily',
+      restart_interval_hours: 6,
     });
     monitor.refresh().catch(() => {});
     res.json({ server: publicServer(server, true) });
@@ -135,6 +142,11 @@ router.put('/:id', requireAdmin, (req, res) => {
       b.restart_time !== undefined && /^\d{1,2}:\d{2}$/.test(String(b.restart_time))
         ? String(b.restart_time)
         : server.restart_time,
+    restart_mode: b.restart_mode === 'daily' || b.restart_mode === 'interval' ? b.restart_mode : server.restart_mode,
+    restart_interval_hours:
+      b.restart_interval_hours !== undefined
+        ? Math.min(Math.max(parseInt(b.restart_interval_hours, 10) || 6, 1), 24)
+        : server.restart_interval_hours,
   });
   monitor.refresh().catch(() => {});
   res.json({ server: publicServer(getServerById(server.id)!, true) });
@@ -272,6 +284,101 @@ router.put('/:id/config', requireAdmin, asyncRoute(async (req, res) => {
   await writeContainerFile(server.container_name, configPath, next);
   const state = monitor.get(server.id)?.state;
   res.json({ ok: true, path: configPath, restartRequired: state === 'running' });
+}));
+
+// ---- Mods (Palworld) ----
+
+const MOD_FOLDERS = ['~mods', 'LogicMods'] as const;
+type ModFolder = (typeof MOD_FOLDERS)[number];
+
+function modFolder(req: { query: Record<string, unknown> }): ModFolder {
+  const f = String(req.query.folder || '~mods');
+  return (MOD_FOLDERS as readonly string[]).includes(f) ? (f as ModFolder) : '~mods';
+}
+
+/** The Paks directory, derived from the (auto-detected) config file location. */
+async function resolvePaksDir(server: GameServer): Promise<string> {
+  if (server.game !== 'palworld') {
+    throw Object.assign(new Error('Mod management is currently only supported for Palworld servers'), { statusCode: 400 });
+  }
+  const { path: configPath } = await resolveConfigPath(server);
+  const idx = configPath.indexOf('/Pal/Saved/');
+  if (idx === -1) {
+    throw Object.assign(new Error('Could not derive the Paks directory from the config path'), { statusCode: 500 });
+  }
+  return `${configPath.slice(0, idx)}/Pal/Content/Paks`;
+}
+
+function safeModFileName(name: string): string {
+  const clean = String(name).trim();
+  if (!clean || clean.includes('/') || clean.includes('\\') || clean.includes('..') || clean.startsWith('.')) {
+    throw Object.assign(new Error('Invalid file name'), { statusCode: 400 });
+  }
+  return clean;
+}
+
+/** List mod files (requires the container to be running). */
+router.get('/:id/mods', requireAdmin, asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const paksDir = await resolvePaksDir(server);
+  const folder = modFolder(req);
+  const running = monitor.get(server.id)?.state === 'running';
+  if (!running) {
+    res.json({ path: `${paksDir}/${folder}`, folder, running: false, mods: [] });
+    return;
+  }
+  const mods = await listContainerDir(server.container_name, `${paksDir}/${folder}`);
+  res.json({ path: `${paksDir}/${folder}`, folder, running: true, mods });
+}));
+
+/** Upload a mod file (works even while the container is stopped). */
+router.post(
+  '/:id/mods',
+  requireAdmin,
+  express.raw({ type: () => true, limit: '2gb' }),
+  asyncRoute(async (req, res) => {
+    const server = getServerById(parseInt(req.params.id, 10));
+    if (!server) {
+      res.status(404).json({ error: 'Server not found' });
+      return;
+    }
+    const fileName = safeModFileName(String(req.query.filename || ''));
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ error: 'Empty upload' });
+      return;
+    }
+    const paksDir = await resolvePaksDir(server);
+    const folder = modFolder(req);
+    await putContainerFile(server.container_name, paksDir, folder, fileName, body);
+    res.json({ ok: true, name: fileName, size: body.length, folder });
+  })
+);
+
+/** Delete a mod file (requires the container to be running). */
+router.delete('/:id/mods/:filename', requireAdmin, asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  if (monitor.get(server.id)?.state !== 'running') {
+    res.status(409).json({ error: 'The container must be running to delete files' });
+    return;
+  }
+  const fileName = safeModFileName(req.params.filename);
+  const paksDir = await resolvePaksDir(server);
+  const folder = modFolder(req);
+  const result = await execInContainer(server.container_name, ['rm', '-rf', `${paksDir}/${folder}/${fileName}`]);
+  if (result.exitCode !== 0) {
+    res.status(500).json({ error: `Delete failed: ${result.stderr || 'unknown error'}` });
+    return;
+  }
+  res.json({ ok: true });
 }));
 
 export default router;
