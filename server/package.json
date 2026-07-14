@@ -1,6 +1,6 @@
 {
   "name": "@stormsmith/server",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
@@ -15,7 +15,6 @@
     "dockerode": "^4.0.2",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "rcon-client": "^4.2.5",
     "tar-stream": "^3.1.7",
     "ws": "^8.18.0"
   },

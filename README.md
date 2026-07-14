@@ -16,7 +16,7 @@ A self-hosted manager for game servers running as Docker containers on Unraid (o
 
 ## Tech stack
 
-- **Backend:** Node.js 22, TypeScript, Express, better-sqlite3, dockerode, rcon-client, discord.js, ws
+- **Backend:** Node.js 22, TypeScript, Express, better-sqlite3, dockerode, discord.js, ws, and a built-in Source RCON client (lenient response matching for Palworld's non-standard RCON)
 - **Frontend:** React 18 + Vite
 - **Storage:** single SQLite file in `/app/data`
 
