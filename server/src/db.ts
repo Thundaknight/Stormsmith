@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
-import type { DiscordConfig, GameServer, ServerPermission, User } from './types';
+import type { DiscordConfig, DiscordRolePerm, GameServer, ServerPermission, User } from './types';
 
 export const db = new Database(config.dbFile);
 db.pragma('journal_mode = WAL');
@@ -31,7 +31,25 @@ export function initDb(): void {
       restart_time TEXT NOT NULL DEFAULT '04:00',
       restart_mode TEXT NOT NULL DEFAULT 'daily',
       restart_interval_hours INTEGER NOT NULL DEFAULT 6,
+      discord_show INTEGER NOT NULL DEFAULT 1,
+      discord_channel_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS discord_role_perms (
+      role_id TEXT PRIMARY KEY,
+      role_name TEXT NOT NULL DEFAULT '',
+      can_use_commands INTEGER NOT NULL DEFAULT 1,
+      can_start INTEGER NOT NULL DEFAULT 0,
+      can_stop INTEGER NOT NULL DEFAULT 0,
+      can_restart INTEGER NOT NULL DEFAULT 0,
+      can_rcon INTEGER NOT NULL DEFAULT 0,
+      can_broadcast INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS discord_status_messages (
+      channel_id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS server_permissions (
@@ -76,10 +94,49 @@ export function initDb(): void {
   addColumn('restart_mode', "restart_mode TEXT NOT NULL DEFAULT 'daily'");
   addColumn('restart_interval_hours', 'restart_interval_hours INTEGER NOT NULL DEFAULT 6');
 
+  addColumn('discord_show', 'discord_show INTEGER NOT NULL DEFAULT 1');
+  addColumn('discord_channel_id', "discord_channel_id TEXT NOT NULL DEFAULT ''");
+
   // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
   db.prepare(
     "UPDATE servers SET broadcast_template = 'Broadcast {message_nbsp}' WHERE broadcast_template = 'Broadcast {message_underscored}'"
   ).run();
+
+  // One-time migration of the old control/rcon role lists into per-role permissions
+  const dcCols = db.prepare('PRAGMA table_info(discord_config)').all() as Array<{ name: string }>;
+  if (!dcCols.some((c) => c.name === 'roles_migrated')) {
+    db.exec('ALTER TABLE discord_config ADD COLUMN roles_migrated INTEGER NOT NULL DEFAULT 0');
+  }
+  const cfg = db.prepare('SELECT * FROM discord_config WHERE id = 1').get() as any;
+  if (cfg && !cfg.roles_migrated) {
+    const parse = (json: string): string[] => {
+      try {
+        const v = JSON.parse(json);
+        return Array.isArray(v) ? v.map(String) : [];
+      } catch {
+        return [];
+      }
+    };
+    const control = new Set(parse(cfg.control_role_ids || '[]'));
+    const rcon = new Set(parse(cfg.rcon_role_ids || '[]'));
+    const ins = db.prepare(
+      `INSERT OR REPLACE INTO discord_role_perms
+       (role_id, role_name, can_use_commands, can_start, can_stop, can_restart, can_rcon, can_broadcast)
+       VALUES (?, '', 1, ?, ?, ?, ?, ?)`
+    );
+    for (const id of new Set([...control, ...rcon])) {
+      const c = control.has(id) ? 1 : 0;
+      const r = rcon.has(id) ? 1 : 0;
+      ins.run(id, c, c, c, r, r);
+    }
+    // Carry the single legacy status message over to the per-channel table
+    if (cfg.status_channel_id && cfg.status_message_id) {
+      db.prepare('INSERT OR IGNORE INTO discord_status_messages (channel_id, message_id) VALUES (?, ?)').run(
+        cfg.status_channel_id, cfg.status_message_id
+      );
+    }
+    db.prepare('UPDATE discord_config SET roles_migrated = 1 WHERE id = 1').run();
+  }
 }
 
 // ---- Users ----
@@ -134,12 +191,14 @@ export function createServer(s: Omit<GameServer, 'id' | 'created_at'>): GameServ
   const info = db
     .prepare(
       `INSERT INTO servers (name, game, container_name, rcon_host, rcon_port, rcon_password, broadcast_template,
-       config_path, game_port, restart_enabled, restart_time, restart_mode, restart_interval_hours)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       config_path, game_port, restart_enabled, restart_time, restart_mode, restart_interval_hours,
+       discord_show, discord_channel_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
-      s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours
+      s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours,
+      s.discord_show, s.discord_channel_id
     );
   return getServerById(Number(info.lastInsertRowid))!;
 }
@@ -148,10 +207,12 @@ export function updateServer(id: number, s: Omit<GameServer, 'id' | 'created_at'
   db.prepare(
     `UPDATE servers SET name = ?, game = ?, container_name = ?, rcon_host = ?, rcon_port = ?,
      rcon_password = ?, broadcast_template = ?, config_path = ?, game_port = ?, restart_enabled = ?,
-     restart_time = ?, restart_mode = ?, restart_interval_hours = ? WHERE id = ?`
+     restart_time = ?, restart_mode = ?, restart_interval_hours = ?, discord_show = ?, discord_channel_id = ?
+     WHERE id = ?`
   ).run(
     s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
-    s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours, id
+    s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours,
+    s.discord_show, s.discord_channel_id, id
   );
 }
 
@@ -187,6 +248,53 @@ export function setPermissionsForUser(
       ins.run(userId, p.server_id, p.can_view ? 1 : 0, p.can_control ? 1 : 0, p.can_rcon ? 1 : 0);
     }
   })();
+}
+
+// ---- Discord role permissions ----
+
+export function listDiscordRolePerms(): DiscordRolePerm[] {
+  return db.prepare('SELECT * FROM discord_role_perms ORDER BY role_name, role_id').all() as DiscordRolePerm[];
+}
+
+export function setDiscordRolePerms(rows: Array<Omit<DiscordRolePerm, never>>): void {
+  const del = db.prepare('DELETE FROM discord_role_perms');
+  const ins = db.prepare(
+    `INSERT INTO discord_role_perms
+     (role_id, role_name, can_use_commands, can_start, can_stop, can_restart, can_rcon, can_broadcast)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  db.transaction(() => {
+    del.run();
+    for (const r of rows) {
+      ins.run(
+        r.role_id, r.role_name, r.can_use_commands ? 1 : 0, r.can_start ? 1 : 0, r.can_stop ? 1 : 0,
+        r.can_restart ? 1 : 0, r.can_rcon ? 1 : 0, r.can_broadcast ? 1 : 0
+      );
+    }
+  })();
+}
+
+// ---- Discord status messages (one embed per channel) ----
+
+export function listStatusMessages(): Array<{ channel_id: string; message_id: string }> {
+  return db.prepare('SELECT * FROM discord_status_messages').all() as Array<{ channel_id: string; message_id: string }>;
+}
+
+export function getStatusMessageId(channelId: string): string {
+  const row = db.prepare('SELECT message_id FROM discord_status_messages WHERE channel_id = ?').get(channelId) as
+    | { message_id: string }
+    | undefined;
+  return row?.message_id || '';
+}
+
+export function setStatusMessageId(channelId: string, messageId: string): void {
+  db.prepare('INSERT OR REPLACE INTO discord_status_messages (channel_id, message_id) VALUES (?, ?)').run(
+    channelId, messageId
+  );
+}
+
+export function deleteStatusMessageId(channelId: string): void {
+  db.prepare('DELETE FROM discord_status_messages WHERE channel_id = ?').run(channelId);
 }
 
 // ---- Discord config ----

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAdmin, requireAuth } from '../auth';
-import { getDiscordConfig, updateDiscordConfig } from '../db';
+import { getDiscordConfig, listDiscordRolePerms, setDiscordRolePerms, updateDiscordConfig } from '../db';
 import { discordBot } from '../discord/bot';
 import { asyncRoute } from './helpers';
 
@@ -60,5 +60,33 @@ router.post('/restart', asyncRoute(async (_req, res) => {
 router.get('/meta', asyncRoute(async (_req, res) => {
   res.json(await discordBot.getGuildMeta());
 }));
+
+/** Per-Discord-role feature permissions. */
+router.get('/roles', (_req, res) => {
+  res.json({ roles: listDiscordRolePerms() });
+});
+
+router.put('/roles', (req, res) => {
+  const roles = req.body?.roles;
+  if (!Array.isArray(roles)) {
+    res.status(400).json({ error: 'roles must be an array' });
+    return;
+  }
+  setDiscordRolePerms(
+    roles
+      .filter((r: any) => r && typeof r.role_id === 'string' && r.role_id.trim())
+      .map((r: any) => ({
+        role_id: String(r.role_id).trim(),
+        role_name: String(r.role_name || ''),
+        can_use_commands: r.can_use_commands ? 1 : 0,
+        can_start: r.can_start ? 1 : 0,
+        can_stop: r.can_stop ? 1 : 0,
+        can_restart: r.can_restart ? 1 : 0,
+        can_rcon: r.can_rcon ? 1 : 0,
+        can_broadcast: r.can_broadcast ? 1 : 0,
+      }))
+  );
+  res.json({ roles: listDiscordRolePerms() });
+});
 
 export default router;

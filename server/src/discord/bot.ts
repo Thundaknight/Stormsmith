@@ -3,12 +3,26 @@ import {
   ChatInputCommandInteraction, Client, EmbedBuilder, GatewayIntentBits, GuildMember,
   Interaction, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, TextChannel,
 } from 'discord.js';
-import { getDiscordConfig, getServerById, listServers, updateDiscordConfig } from '../db';
+import {
+  deleteStatusMessageId, getDiscordConfig, getServerById, getStatusMessageId,
+  listDiscordRolePerms, listServers, listStatusMessages, setStatusMessageId,
+} from '../db';
 import { performAction } from '../docker';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
-import type { ContainerState, DiscordConfig, ServerAction, ServerStatus } from '../types';
+import type { ContainerState, DiscordConfig, DiscordRolePerm, ServerAction, ServerStatus } from '../types';
+
+type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast';
+
+const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
+  commands: 'can_use_commands',
+  start: 'can_start',
+  stop: 'can_stop',
+  restart: 'can_restart',
+  rcon: 'can_rcon',
+  broadcast: 'can_broadcast',
+};
 
 const STATE_EMOJI: Record<ContainerState, string> = {
   running: '🟢', paused: '🟡', restarting: '🔄', exited: '🔴',
@@ -242,34 +256,68 @@ class DiscordBot {
     }).filter((row) => row.components.length > 0);
   }
 
+  /**
+   * Maintains one status embed per channel. Each server chooses its channel
+   * (discord_channel_id, falling back to the default status channel) and can
+   * opt out of Discord display entirely (discord_show = 0).
+   */
   private async updateStatusMessage(): Promise<void> {
     const cfg = this.cfg;
-    if (!this.client?.isReady() || !cfg?.status_channel_id) return;
-    const channel = await this.client.channels.fetch(cfg.status_channel_id).catch(() => null);
-    if (!channel || !(channel instanceof TextChannel)) return;
+    if (!this.client?.isReady() || !cfg) return;
 
-    const statuses = monitor.getAll();
-    const payload = { embeds: [this.buildStatusEmbed(statuses)], components: this.buildButtons(statuses) };
-
-    if (cfg.status_message_id) {
-      const existing = await channel.messages.fetch(cfg.status_message_id).catch(() => null);
-      if (existing) {
-        await existing.edit(payload);
-        return;
-      }
+    const statusById = new Map(monitor.getAll().map((s) => [s.serverId, s]));
+    const groups = new Map<string, ServerStatus[]>();
+    for (const server of listServers()) {
+      if (!server.discord_show) continue;
+      const channelId = server.discord_channel_id || cfg.status_channel_id;
+      if (!channelId) continue;
+      const status = statusById.get(server.id);
+      if (!status) continue;
+      const group = groups.get(channelId);
+      if (group) group.push(status);
+      else groups.set(channelId, [status]);
     }
-    const msg = await channel.send(payload);
-    updateDiscordConfig({ status_message_id: msg.id });
-    cfg.status_message_id = msg.id;
+
+    for (const [channelId, statuses] of groups) {
+      const channel = await this.client.channels.fetch(channelId).catch(() => null);
+      if (!channel || !(channel instanceof TextChannel)) continue;
+      const payload = { embeds: [this.buildStatusEmbed(statuses)], components: this.buildButtons(statuses) };
+      const existingId = getStatusMessageId(channelId);
+      if (existingId) {
+        const existing = await channel.messages.fetch(existingId).catch(() => null);
+        if (existing) {
+          await existing.edit(payload).catch(() => {});
+          continue;
+        }
+      }
+      const msg = await channel.send(payload).catch(() => null);
+      if (msg) setStatusMessageId(channelId, msg.id);
+    }
+
+    // Clean up embeds in channels that no longer display any server
+    for (const row of listStatusMessages()) {
+      if (groups.has(row.channel_id)) continue;
+      const channel = await this.client.channels.fetch(row.channel_id).catch(() => null);
+      if (channel instanceof TextChannel) {
+        const msg = await channel.messages.fetch(row.message_id).catch(() => null);
+        await msg?.delete().catch(() => {});
+      }
+      deleteStatusMessageId(row.channel_id);
+    }
   }
 
   // ---- Permission checks ----
 
-  private memberHasRole(member: GuildMember, roleIdsJson: string): boolean {
+  /** Per-role permission check. Discord administrators can always do everything. */
+  private memberCan(member: GuildMember, perm: DiscordPerm): boolean {
     if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-    const roleIds = parseIds(roleIdsJson);
-    if (roleIds.length === 0) return false; // no roles configured = nobody (except server admins)
-    return member.roles.cache.some((r) => roleIds.includes(r.id));
+    const column = PERM_COLUMN[perm];
+    return listDiscordRolePerms().some((r) => member.roles.cache.has(r.role_id) && !!r[column]);
+  }
+
+  /** Public hook so API routes can refresh embeds after settings change. */
+  refreshStatus(): void {
+    this.queueStatusUpdate();
   }
 
   private channelAllowed(channelId: string): boolean {
@@ -317,11 +365,13 @@ class DiscordBot {
     const [prefix, action, idStr] = interaction.customId.split(':');
     if (prefix !== 'srv') return;
     const member = interaction.member as GuildMember | null;
-    if (!member || !this.memberHasRole(member, this.cfg!.control_role_ids)) {
-      await interaction.reply({ content: '⛔ You do not have permission to control servers.', ephemeral: true });
+    const serverAction = action as ServerAction;
+    const permNeeded: DiscordPerm =
+      serverAction === 'pause' || serverAction === 'unpause' ? 'restart' : (serverAction as DiscordPerm);
+    if (!member || !this.memberCan(member, permNeeded)) {
+      await interaction.reply({ content: `⛔ You do not have permission to ${serverAction} servers.`, ephemeral: true });
       return;
     }
-    const serverAction = action as ServerAction;
     if (!this.actionAllowed(serverAction)) {
       await interaction.reply({ content: '⛔ That action is disabled.', ephemeral: true });
       return;
@@ -351,6 +401,11 @@ class DiscordBot {
     const member = interaction.member as GuildMember | null;
     if (!member) return;
 
+    if (!this.memberCan(member, 'commands')) {
+      await interaction.reply({ content: '⛔ You do not have permission to use bot commands.', ephemeral: true });
+      return;
+    }
+
     if (interaction.commandName === 'servers') {
       await interaction.reply({ embeds: [this.buildStatusEmbed(monitor.getAll())], ephemeral: true });
       return;
@@ -364,11 +419,13 @@ class DiscordBot {
     }
 
     if (interaction.commandName === 'server') {
-      if (!this.memberHasRole(member, cfg.control_role_ids)) {
-        await interaction.reply({ content: '⛔ You do not have permission to control servers.', ephemeral: true });
+      const action = interaction.options.getString('action') as ServerAction;
+      const permNeeded: DiscordPerm =
+        action === 'pause' || action === 'unpause' ? 'restart' : (action as DiscordPerm);
+      if (!this.memberCan(member, permNeeded)) {
+        await interaction.reply({ content: `⛔ You do not have permission to ${action} servers.`, ephemeral: true });
         return;
       }
-      const action = interaction.options.getString('action') as ServerAction;
       if (!this.actionAllowed(action)) {
         await interaction.reply({ content: `⛔ The \`${action}\` action is disabled.`, ephemeral: true });
         return;
@@ -386,7 +443,7 @@ class DiscordBot {
     }
 
     if (interaction.commandName === 'rcon') {
-      if (!cfg.allow_rcon || !this.memberHasRole(member, cfg.rcon_role_ids)) {
+      if (!cfg.allow_rcon || !this.memberCan(member, 'rcon')) {
         await interaction.reply({ content: '⛔ You do not have permission to use RCON.', ephemeral: true });
         return;
       }
@@ -407,7 +464,7 @@ class DiscordBot {
     }
 
     if (interaction.commandName === 'broadcast') {
-      if (!cfg.allow_broadcast || !this.memberHasRole(member, cfg.rcon_role_ids)) {
+      if (!cfg.allow_broadcast || !this.memberCan(member, 'broadcast')) {
         await interaction.reply({ content: '⛔ You do not have permission to broadcast.', ephemeral: true });
         return;
       }

@@ -23,6 +23,8 @@ export interface GameServer {
   restart_time: string;
   restart_mode: 'daily' | 'interval';
   restart_interval_hours: number;
+  discord_show: boolean;
+  discord_channel_id: string;
   rcon_configured: boolean;
   state: ContainerState;
   statusText: string;
@@ -63,6 +65,17 @@ export interface ContainerSummary {
   state: ContainerState;
   statusText: string;
   imported: boolean;
+}
+
+export interface DiscordRolePerm {
+  role_id: string;
+  role_name: string;
+  can_use_commands: boolean | number;
+  can_start: boolean | number;
+  can_stop: boolean | number;
+  can_restart: boolean | number;
+  can_rcon: boolean | number;
+  can_broadcast: boolean | number;
 }
 
 export interface ModEntry {

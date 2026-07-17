@@ -30,7 +30,20 @@ export interface GameServer {
   restart_time: string;
   restart_mode: string; // 'daily' | 'interval'
   restart_interval_hours: number;
+  discord_show: number;
+  discord_channel_id: string; // empty = the default status channel
   created_at: string;
+}
+
+export interface DiscordRolePerm {
+  role_id: string;
+  role_name: string;
+  can_use_commands: number;
+  can_start: number;
+  can_stop: number;
+  can_restart: number;
+  can_rcon: number;
+  can_broadcast: number;
 }
 
 export interface ServerPermission {

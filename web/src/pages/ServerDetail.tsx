@@ -50,6 +50,8 @@ export default function ServerDetail() {
   // Settings tab form
   const [form, setForm] = useState<Record<string, string>>({});
   const [restartEnabled, setRestartEnabled] = useState(false);
+  const [discordShow, setDiscordShow] = useState(true);
+  const [discordChannels, setDiscordChannels] = useState<Array<{ id: string; name: string }>>([]);
   const [settingsNotice, setSettingsNotice] = useState('');
 
   const initForm = useCallback((s: GameServer) => {
@@ -66,8 +68,10 @@ export default function ServerDetail() {
       restart_time: s.restart_time || '04:00',
       restart_mode: s.restart_mode || 'daily',
       restart_interval_hours: String(s.restart_interval_hours || 6),
+      discord_channel_id: s.discord_channel_id || '',
     });
     setRestartEnabled(!!s.restart_enabled);
+    setDiscordShow(s.discord_show !== false);
   }, []);
 
   const load = useCallback(() => {
@@ -81,6 +85,12 @@ export default function ServerDetail() {
   }, [serverId, initForm]);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      api.discordMeta().then((r) => setDiscordChannels(r.channels)).catch(() => {});
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -167,7 +177,11 @@ export default function ServerDetail() {
     setError('');
     setSettingsNotice('');
     try {
-      const r = await api.updateServer(server.id, { ...form, restart_enabled: restartEnabled });
+      const r = await api.updateServer(server.id, {
+        ...form,
+        restart_enabled: restartEnabled,
+        discord_show: discordShow,
+      });
       setServer({ ...server, ...r.server });
       initForm({ ...server, ...r.server });
       setSettingsNotice('✅ Settings saved');
@@ -421,6 +435,37 @@ export default function ServerDetail() {
                   available if your server needs the old underscore workaround.
                 </span>
               </label>
+              <div className="span-2 restart-schedule">
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={discordShow} onChange={(e) => setDiscordShow(e.target.checked)} />
+                  Show in Discord status channel
+                </label>
+                {discordShow && (
+                  <label className="restart-time">
+                    Status channel
+                    {discordChannels.length > 0 ? (
+                      <select
+                        value={form.discord_channel_id || ''}
+                        onChange={(e) => setForm({ ...form, discord_channel_id: e.target.value })}
+                      >
+                        <option value="">Default status channel</option>
+                        {discordChannels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        className="mono"
+                        value={form.discord_channel_id || ''}
+                        onChange={(e) => setForm({ ...form, discord_channel_id: e.target.value })}
+                        placeholder="Channel ID (blank = default channel)"
+                      />
+                    )}
+                  </label>
+                )}
+                <span className="hint">
+                  Choose which Discord channel this server's status embed appears in — different servers can use
+                  different channels.
+                </span>
+              </div>
               <div className="span-2 restart-schedule">
                 <label className="checkbox-label">
                   <input type="checkbox" checked={restartEnabled} onChange={(e) => setRestartEnabled(e.target.checked)} />

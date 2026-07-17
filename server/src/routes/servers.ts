@@ -7,6 +7,7 @@ import {
   execInContainer, getStats, listContainerDir, listContainers, performAction,
   putContainerFile, readContainerFile, writeContainerFile,
 } from '../docker';
+import { discordBot } from '../discord/bot';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
@@ -33,6 +34,8 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     restart_time: s.restart_time,
     restart_mode: s.restart_mode,
     restart_interval_hours: s.restart_interval_hours,
+    discord_show: !!s.discord_show,
+    discord_channel_id: s.discord_channel_id,
     rcon_configured: !!(s.rcon_host && s.rcon_port),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
@@ -92,8 +95,11 @@ router.post('/', requireAdmin, (req, res) => {
       restart_time: '04:00',
       restart_mode: 'daily',
       restart_interval_hours: 6,
+      discord_show: 1,
+      discord_channel_id: '',
     });
     monitor.refresh().catch(() => {});
+    discordBot.refreshStatus();
     res.json({ server: publicServer(server, true) });
   } catch (err: any) {
     if (String(err?.message).includes('UNIQUE')) {
@@ -147,14 +153,19 @@ router.put('/:id', requireAdmin, (req, res) => {
       b.restart_interval_hours !== undefined
         ? Math.min(Math.max(parseInt(b.restart_interval_hours, 10) || 6, 1), 24)
         : server.restart_interval_hours,
+    discord_show: b.discord_show !== undefined ? (b.discord_show ? 1 : 0) : server.discord_show,
+    discord_channel_id:
+      b.discord_channel_id !== undefined ? String(b.discord_channel_id).trim() : server.discord_channel_id,
   });
   monitor.refresh().catch(() => {});
+  discordBot.refreshStatus();
   res.json({ server: publicServer(getServerById(server.id)!, true) });
 });
 
 router.delete('/:id', requireAdmin, (req, res) => {
   deleteServer(parseInt(req.params.id, 10));
   monitor.refresh().catch(() => {});
+  discordBot.refreshStatus();
   res.json({ ok: true });
 });
 

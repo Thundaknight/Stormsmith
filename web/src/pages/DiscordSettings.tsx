@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
-import type { DiscordConfigView } from '../types';
+import type { DiscordConfigView, DiscordRolePerm } from '../types';
+
+const ROLE_PERM_COLUMNS: Array<{ key: keyof DiscordRolePerm; label: string }> = [
+  { key: 'can_use_commands', label: 'Slash commands' },
+  { key: 'can_start', label: 'Start' },
+  { key: 'can_stop', label: 'Stop' },
+  { key: 'can_restart', label: 'Restart / pause' },
+  { key: 'can_rcon', label: 'RCON' },
+  { key: 'can_broadcast', label: 'Broadcast' },
+];
 
 interface IdName {
   id: string;
@@ -69,8 +78,8 @@ export default function DiscordSettings() {
   const [botToken, setBotToken] = useState('');
   const [guildId, setGuildId] = useState('');
   const [statusChannelId, setStatusChannelId] = useState('');
-  const [controlRoles, setControlRoles] = useState<string[]>([]);
-  const [rconRoles, setRconRoles] = useState<string[]>([]);
+  const [rolePerms, setRolePerms] = useState<DiscordRolePerm[]>([]);
+  const [addRoleId, setAddRoleId] = useState('');
   const [commandChannels, setCommandChannels] = useState<string[]>([]);
   const [allow, setAllow] = useState({ start: true, stop: true, restart: true, rcon: false, broadcast: true });
   const [rconAllowlist, setRconAllowlist] = useState('');
@@ -81,8 +90,6 @@ export default function DiscordSettings() {
     setBotToken(c.bot_token);
     setGuildId(c.guild_id);
     setStatusChannelId(c.status_channel_id);
-    setControlRoles(parseIds(c.control_role_ids));
-    setRconRoles(parseIds(c.rcon_role_ids));
     setCommandChannels(parseIds(c.command_channel_ids));
     setAllow({
       start: !!c.allow_start,
@@ -106,7 +113,38 @@ export default function DiscordSettings() {
       applyConfig(r.config);
       if (r.config.bot_running) loadMeta();
     }).catch((err) => setError(err.message));
+    api.getDiscordRoles().then((r) => setRolePerms(r.roles)).catch(() => {});
   }, [applyConfig, loadMeta]);
+
+  const addRole = () => {
+    if (!addRoleId || rolePerms.some((r) => r.role_id === addRoleId)) return;
+    const meta = roles.find((r) => r.id === addRoleId);
+    setRolePerms([
+      ...rolePerms,
+      {
+        role_id: addRoleId,
+        role_name: meta?.name || '',
+        can_use_commands: true,
+        can_start: false,
+        can_stop: false,
+        can_restart: false,
+        can_rcon: false,
+        can_broadcast: false,
+      },
+    ]);
+    setAddRoleId('');
+  };
+
+  const toggleRolePerm = (roleId: string, key: keyof DiscordRolePerm) => {
+    setRolePerms(rolePerms.map((r) => (r.role_id === roleId ? { ...r, [key]: !r[key] } : r)));
+  };
+
+  const removeRole = (roleId: string) => {
+    setRolePerms(rolePerms.filter((r) => r.role_id !== roleId));
+  };
+
+  const roleDisplayName = (r: DiscordRolePerm) =>
+    roles.find((m) => m.id === r.role_id)?.name || r.role_name || r.role_id;
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -114,13 +152,12 @@ export default function DiscordSettings() {
     setError('');
     setNotice('');
     try {
+      await api.setDiscordRoles(rolePerms);
       const r = await api.updateDiscordConfig({
         enabled,
         bot_token: botToken,
         guild_id: guildId,
         status_channel_id: statusChannelId,
-        control_role_ids: controlRoles,
-        rcon_role_ids: rconRoles,
         command_channel_ids: commandChannels,
         allow_start: allow.start,
         allow_stop: allow.stop,
@@ -182,7 +219,11 @@ export default function DiscordSettings() {
           <h2>Status message</h2>
           <div className="picker">
             <div className="picker-label">Status channel</div>
-            <div className="hint">The bot posts one auto-updating status embed (with control buttons) in this channel.</div>
+            <div className="hint">
+              Default channel for the auto-updating status embed (with control buttons). Each game server can
+              pick a different channel — or opt out of Discord entirely — in its own Settings tab, so you can run
+              multiple status channels.
+            </div>
             {channels.length > 0 ? (
               <select value={statusChannelId} onChange={(e) => setStatusChannelId(e.target.value)}>
                 <option value="">— none —</option>
@@ -195,16 +236,68 @@ export default function DiscordSettings() {
         </div>
 
         <div className="card">
-          <h2>Permissions</h2>
-          <MultiPicker
-            label="Roles allowed to control servers (start/stop/restart)"
-            hint="Discord server administrators can always control. If empty, only administrators can."
-            options={roles} selected={controlRoles} onChange={setControlRoles}
-          />
-          <MultiPicker
-            label="Roles allowed to use RCON and broadcasts"
-            options={roles} selected={rconRoles} onChange={setRconRoles}
-          />
+          <h2>Role permissions</h2>
+          <p className="hint">
+            Each Discord role gets its own set of allowed features. Discord server administrators can always do
+            everything. Members with none of these roles cannot use the bot.
+          </p>
+          <div className="mods-toolbar">
+            {roles.length > 0 ? (
+              <select value={addRoleId} onChange={(e) => setAddRoleId(e.target.value)}>
+                <option value="">— pick a role to add —</option>
+                {roles
+                  .filter((r) => !rolePerms.some((p) => p.role_id === r.id))
+                  .map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            ) : (
+              <input
+                value={addRoleId}
+                onChange={(e) => setAddRoleId(e.target.value)}
+                placeholder="Role ID (connect the bot to pick by name)"
+                className="mono"
+              />
+            )}
+            <button type="button" className="btn" onClick={addRole} disabled={!addRoleId}>+ Add role</button>
+          </div>
+          {rolePerms.length === 0 && <p className="muted">No roles configured yet.</p>}
+          {rolePerms.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    {ROLE_PERM_COLUMNS.map((c) => <th key={String(c.key)}>{c.label}</th>)}
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rolePerms.map((r) => (
+                    <tr key={r.role_id}>
+                      <td><span className="chip chip-on">{roleDisplayName(r)}</span></td>
+                      {ROLE_PERM_COLUMNS.map((c) => (
+                        <td key={String(c.key)}>
+                          <input
+                            type="checkbox"
+                            checked={!!r[c.key]}
+                            onChange={() => toggleRolePerm(r.role_id, c.key)}
+                          />
+                        </td>
+                      ))}
+                      <td className="table-actions">
+                        <button type="button" className="btn btn-small btn-danger-outline" onClick={() => removeRole(r.role_id)}>
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>Command channels</h2>
           <MultiPicker
             label="Channels where commands are allowed"
             hint="Leave empty to allow slash commands in every channel."

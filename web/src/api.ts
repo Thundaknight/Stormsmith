@@ -1,5 +1,5 @@
 import type {
-  ContainerSummary, DiscordConfigView, GameServer, ModEntry, Permission, ServerAction, User,
+  ContainerSummary, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission, ServerAction, User,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -121,4 +121,7 @@ export const api = {
   discordMeta: () =>
     request<{ roles: Array<{ id: string; name: string }>; channels: Array<{ id: string; name: string }> }>(
       'GET', '/api/discord/meta'),
+  getDiscordRoles: () => request<{ roles: DiscordRolePerm[] }>('GET', '/api/discord/roles'),
+  setDiscordRoles: (roles: DiscordRolePerm[]) =>
+    request<{ roles: DiscordRolePerm[] }>('PUT', '/api/discord/roles', { roles }),
 };
