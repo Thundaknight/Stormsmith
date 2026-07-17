@@ -415,7 +415,11 @@ export default function ServerDetail() {
               <label className="span-2">
                 Broadcast command template
                 <input value={form.broadcast_template || ''} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} placeholder="say {message}" />
-                <span className="hint">Use {'{message}'} for the text, or {'{message_underscored}'} for games (like Palworld) that need spaces replaced.</span>
+                <span className="hint">
+                  Use {'{message}'} for the text. For Palworld use {'{message_nbsp}'} — it sends spaces as
+                  non-breaking spaces so messages display normally in-game. {'{message_underscored}'} is also
+                  available if your server needs the old underscore workaround.
+                </span>
               </label>
               <div className="span-2 restart-schedule">
                 <label className="checkbox-label">

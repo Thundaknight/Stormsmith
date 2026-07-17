@@ -25,8 +25,25 @@ interface Packet {
   body: string;
 }
 
+/**
+ * Encodes the packet body as UTF-8, except U+00A0 (non-breaking space) which
+ * is sent as the single raw byte 0xA0. Palworld's RCON drops everything after
+ * the first regular space in a command argument, but renders the raw 0xA0
+ * byte as a space in-game — so broadcasts use NBSP instead of spaces.
+ */
+function encodeBody(body: string): Buffer {
+  if (!body.includes('\u00A0')) return Buffer.from(body, 'utf8');
+  const parts = body.split('\u00A0');
+  const buffers: Buffer[] = [];
+  parts.forEach((part, i) => {
+    if (i > 0) buffers.push(Buffer.from([0xa0]));
+    buffers.push(Buffer.from(part, 'utf8'));
+  });
+  return Buffer.concat(buffers);
+}
+
 function encodePacket(id: number, type: number, body: string): Buffer {
-  const bodyBuf = Buffer.from(body, 'utf8');
+  const bodyBuf = encodeBody(body);
   const buf = Buffer.alloc(14 + bodyBuf.length);
   buf.writeInt32LE(10 + bodyBuf.length, 0); // size excludes the size field itself
   buf.writeInt32LE(id, 4);
@@ -133,6 +150,8 @@ export async function sendBroadcast(server: GameServer, message: string): Promis
   if (!server.broadcast_template) throw new Error('No broadcast template configured for this server');
   const command = server.broadcast_template
     .replace('{message}', message)
+    // Palworld: spaces become raw 0xA0 bytes, shown as spaces in-game
+    .replace('{message_nbsp}', message.replace(/ /g, '\u00A0'))
     .replace('{message_underscored}', message.replace(/ /g, '_'));
   return sendRconCommand(server, command);
 }

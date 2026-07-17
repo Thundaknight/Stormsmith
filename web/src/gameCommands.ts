@@ -2,8 +2,12 @@ export interface CommandParam {
   name: string;
   placeholder: string;
   required: boolean;
-  /** Palworld drops everything after the first space in text arguments; replace spaces with underscores. */
-  underscoreSpaces?: boolean;
+  /**
+   * Palworld drops everything after the first space in text arguments.
+   * Spaces are sent as non-breaking spaces (raw 0xA0 over RCON), which
+   * Palworld renders as normal spaces in-game.
+   */
+  escapeSpaces?: boolean;
 }
 
 export interface GameCommand {
@@ -46,7 +50,7 @@ export const GAME_COMMANDS: Record<string, GameCommand[]> = {
       label: 'Broadcast',
       description: 'Send a message to all players on the server.',
       params: [
-        { name: 'MessageText', placeholder: 'Message to all players', required: true, underscoreSpaces: true },
+        { name: 'MessageText', placeholder: 'Message to all players', required: true, escapeSpaces: true },
       ],
     },
     {
@@ -74,7 +78,7 @@ export const GAME_COMMANDS: Record<string, GameCommand[]> = {
       description: 'Shut the server down after a delay, announcing a message to players. The world is saved.',
       params: [
         { name: 'Seconds', placeholder: 'Delay in seconds (e.g. 60)', required: true },
-        { name: 'MessageText', placeholder: 'Announcement (e.g. Server restarting in 60s)', required: false, underscoreSpaces: true },
+        { name: 'MessageText', placeholder: 'Announcement (e.g. Server restarting in 60s)', required: false, escapeSpaces: true },
       ],
       destructive: true,
     },
@@ -93,7 +97,7 @@ export function buildCommand(cmd: GameCommand, values: Record<string, string>): 
   for (const p of cmd.params) {
     let v = (values[p.name] || '').trim();
     if (!v) continue;
-    if (p.underscoreSpaces) v = v.replace(/ /g, '_');
+    if (p.escapeSpaces) v = v.replace(/ /g, '\u00A0');
     parts.push(v);
   }
   return parts.join(' ');

@@ -75,6 +75,11 @@ export function initDb(): void {
   addColumn('restart_time', "restart_time TEXT NOT NULL DEFAULT '04:00'");
   addColumn('restart_mode', "restart_mode TEXT NOT NULL DEFAULT 'daily'");
   addColumn('restart_interval_hours', 'restart_interval_hours INTEGER NOT NULL DEFAULT 6');
+
+  // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
+  db.prepare(
+    "UPDATE servers SET broadcast_template = 'Broadcast {message_nbsp}' WHERE broadcast_template = 'Broadcast {message_underscored}'"
+  ).run();
 }
 
 // ---- Users ----

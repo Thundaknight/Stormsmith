@@ -100,7 +100,7 @@ export interface DiscordConfigView {
 export type ServerAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause';
 
 export const GAME_PRESETS: Record<string, { label: string; rconPort: number; gamePort: number; broadcast: string }> = {
-  palworld: { label: 'Palworld', rconPort: 25575, gamePort: 8211, broadcast: 'Broadcast {message_underscored}' },
+  palworld: { label: 'Palworld', rconPort: 25575, gamePort: 8211, broadcast: 'Broadcast {message_nbsp}' },
   minecraft: { label: 'Minecraft', rconPort: 25575, gamePort: 25565, broadcast: 'say {message}' },
   satisfactory: { label: 'Satisfactory', rconPort: 0, gamePort: 7777, broadcast: '' },
   valheim: { label: 'Valheim', rconPort: 0, gamePort: 2456, broadcast: '' },
