@@ -11,6 +11,7 @@ import { performAction } from '../docker';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
+import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
 import type { ContainerState, DiscordConfig, DiscordRolePerm, ServerAction, ServerStatus } from '../types';
 
 type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast';
@@ -212,6 +213,8 @@ class DiscordBot {
         `**Game:** ${GAME_LABELS[s.game] || s.game}`,
         `**Uptime:** ${s.state === 'running' ? formatUptime(s.startedAt) : '—'}`,
       ];
+      const nextRestart = getNextScheduledRestart(s.serverId);
+      if (nextRestart) lines.push(`**Next restart:** <t:${Math.floor(nextRestart / 1000)}:R>`);
       if (publicIp && s.gamePort) lines.push(`**Server IP:** \`${publicIp}:${s.gamePort}\``);
       lines.push(`**Players:** ${s.playerCount != null ? s.playerCount : '—'}`);
       if (s.players && s.players.length > 0) {
@@ -250,6 +253,12 @@ class DiscordBot {
         row.addComponents(
           new ButtonBuilder().setCustomId(`srv:restart:${s.serverId}`).setLabel(`🔄 ${s.name}`)
             .setStyle(ButtonStyle.Secondary).setDisabled(!running)
+        );
+      }
+      if (cfg.allow_restart && getNextScheduledRestart(s.serverId) !== null) {
+        row.addComponents(
+          new ButtonBuilder().setCustomId(`srv:delay:${s.serverId}`).setLabel(`⏰ ${s.name}`)
+            .setStyle(ButtonStyle.Secondary)
         );
       }
       return row;
@@ -365,6 +374,30 @@ class DiscordBot {
     const [prefix, action, idStr] = interaction.customId.split(':');
     if (prefix !== 'srv') return;
     const member = interaction.member as GuildMember | null;
+
+    if (action === 'delay') {
+      if (!member || !this.memberCan(member, 'restart')) {
+        await interaction.reply({ content: '⛔ You do not have permission to delay restarts.', ephemeral: true });
+        return;
+      }
+      const server = getServerById(parseInt(idStr, 10));
+      if (!server) {
+        await interaction.reply({ content: 'Server not found.', ephemeral: true });
+        return;
+      }
+      const targetAt = delayScheduledRestart(server.id);
+      if (!targetAt) {
+        await interaction.reply({ content: `⛔ **${server.name}** has no scheduled restart to delay.`, ephemeral: true });
+        return;
+      }
+      this.queueStatusUpdate();
+      await interaction.reply({
+        content: `⏰ **${server.name}**: restart delayed to <t:${Math.floor(targetAt / 1000)}:t>.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
     const serverAction = action as ServerAction;
     const permNeeded: DiscordPerm =
       serverAction === 'pause' || serverAction === 'unpause' ? 'restart' : (serverAction as DiscordPerm);

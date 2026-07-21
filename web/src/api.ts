@@ -62,6 +62,8 @@ export const api = {
   deleteServer: (id: number) => request<{ ok: boolean }>('DELETE', `/api/servers/${id}`),
   serverAction: (id: number, action: ServerAction) =>
     request<{ ok: boolean; state: string }>('POST', `/api/servers/${id}/action`, { action }),
+  delayRestart: (id: number) =>
+    request<{ ok: boolean; nextRestartAt: string }>('POST', `/api/servers/${id}/delay-restart`),
   serverStats: (id: number) =>
     request<{ stats: { cpuPercent: number; memUsageBytes: number; memLimitBytes: number } }>(
       'GET', `/api/servers/${id}/stats`),

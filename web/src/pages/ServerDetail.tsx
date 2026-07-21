@@ -6,7 +6,7 @@ import { useAuth } from '../auth';
 import ModsPanel from '../components/ModsPanel';
 import PalworldSettings from '../components/PalworldSettings';
 import StatusBadge from '../components/StatusBadge';
-import { formatBytes, mergeLive } from '../format';
+import { formatBytes, formatRelative, mergeLive } from '../format';
 import type { GameCommand } from '../gameCommands';
 import { GAME_COMMANDS, buildCommand } from '../gameCommands';
 import type { GameServer, ServerAction } from '../types';
@@ -31,6 +31,7 @@ export default function ServerDetail() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('controls');
   const [busy, setBusy] = useState<ServerAction | null>(null);
+  const [delaying, setDelaying] = useState(false);
   const { statuses } = useStatusSocket(true);
 
   // RCON console
@@ -122,6 +123,19 @@ export default function ServerDetail() {
       setError(err.message);
     } finally {
       setBusy(null);
+    }
+  };
+
+  const delayRestart = async () => {
+    setDelaying(true);
+    setError('');
+    try {
+      const r = await api.delayRestart(server.id);
+      setServer({ ...server, nextRestartAt: r.nextRestartAt });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDelaying(false);
     }
   };
 
@@ -255,6 +269,14 @@ export default function ServerDetail() {
                 )}
               </div>
               {busy && <div className="muted">Running {busy}…</div>}
+              {server.restart_enabled && server.nextRestartAt && (
+                <div className="restart-notice">
+                  <span className="muted">Next scheduled restart {formatRelative(server.nextRestartAt)}</span>
+                  <button className="btn btn-small" disabled={delaying} onClick={delayRestart}>
+                    {delaying ? '…' : '⏰ Delay 30m'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

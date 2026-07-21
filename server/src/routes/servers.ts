@@ -12,6 +12,7 @@ import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
+import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
 import type { GameServer, ServerAction } from '../types';
 import { asyncRoute } from './helpers';
 
@@ -45,6 +46,10 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     playerCount: status?.playerCount ?? null,
     players: status?.players ?? null,
     startedAt: status?.startedAt ?? null,
+    nextRestartAt: (() => {
+      const at = getNextScheduledRestart(s.id);
+      return at ? new Date(at).toISOString() : null;
+    })(),
     created_at: s.created_at,
   };
   if (!includeSecrets) return base;
@@ -185,6 +190,21 @@ router.post('/:id/action', requireServerPermission('control'), asyncRoute(async 
   await monitor.refresh();
   res.json({ ok: true, state: monitor.get(server.id)?.state });
 }));
+
+/** Push the next scheduled restart back by 30 minutes. */
+router.post('/:id/delay-restart', requireServerPermission('control'), (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const targetAt = server.restart_enabled ? delayScheduledRestart(server.id) : null;
+  if (!targetAt) {
+    res.status(400).json({ error: 'No scheduled restart to delay' });
+    return;
+  }
+  res.json({ ok: true, nextRestartAt: new Date(targetAt).toISOString() });
+});
 
 /** Live CPU / memory stats. */
 router.get('/:id/stats', requireServerPermission('view'), asyncRoute(async (req, res) => {

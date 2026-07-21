@@ -29,6 +29,10 @@ export default function Dashboard() {
 
   useEffect(load, [load]);
 
+  const handleDelayed = (serverId: number, nextRestartAt: string) => {
+    setServers((prev) => prev.map((s) => (s.id === serverId ? { ...s, nextRestartAt } : s)));
+  };
+
   // Merge live WebSocket state into the server list
   const merged = servers.map((s) => mergeLive(s, statuses.get(s.id)));
 
@@ -63,7 +67,7 @@ export default function Dashboard() {
       )}
       <div className="server-grid">
         {merged.map((s) => (
-          <ServerCard key={s.id} server={s} publicIp={publicIp} onError={setError} />
+          <ServerCard key={s.id} server={s} publicIp={publicIp} onError={setError} onDelayed={handleDelayed} />
         ))}
       </div>
     </div>

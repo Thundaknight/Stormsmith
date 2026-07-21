@@ -34,6 +34,7 @@ export interface GameServer {
   playerCount?: number | null;
   players?: string[] | null;
   startedAt?: string | null;
+  nextRestartAt?: string | null;
   can_control: boolean;
   can_rcon: boolean;
   rcon_host?: string;

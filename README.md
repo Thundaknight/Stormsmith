@@ -12,7 +12,8 @@ A self-hosted manager for game servers running as Docker containers on Unraid (o
 - **User management** — admin and user roles, with per-server permissions (view / control / RCON) for each user.
 - **RCON** — built-in console for Source-RCON games (Palworld, Minecraft, Rust, ARK, 7DtD, …) plus one-click in-game broadcast messages with per-game command templates. Palworld servers get a full command palette (kick/ban, save, graceful shutdown, …).
 - **Palworld settings editor** — reads `PalWorldSettings.ini` directly from inside the game container (auto-detecting its location, no extra mounts), and lets you view and edit every setting with sliders, toggles, and dropdowns, then writes it back.
-- **Discord bot** — auto-updating status embed with start/stop/restart buttons, slash commands (`/servers`, `/server`, `/rcon`, `/broadcast`), all gated by roles, channels, and per-command toggles configured in the web UI.
+- **Discord bot** — auto-updating status embed with start/stop/restart buttons, slash commands (`/servers`, `/server`, `/rcon`, `/broadcast`), all gated by per-role feature permissions and per-command toggles configured in the web UI. Each server can display in its own channel, so you can run multiple status channels.
+- **Scheduled restarts** — daily at a set time, or every N hours from a start time, with in-game RCON warnings at 30/5/1 minutes before. A restart is automatically skipped if the server already restarted within the last hour, and any upcoming restart can be pushed back 30 minutes at a time from the dashboard, the server page, or a Discord button.
 
 ## Tech stack
 

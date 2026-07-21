@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { formatBytes } from '../format';
+import { formatBytes, formatRelative } from '../format';
 import type { GameServer, ServerAction } from '../types';
 import { GAME_PRESETS } from '../types';
 import CopyButton from './CopyButton';
@@ -11,12 +11,14 @@ interface Props {
   server: GameServer;
   publicIp: string;
   onError: (message: string) => void;
+  onDelayed: (serverId: number, nextRestartAt: string) => void;
 }
 
 const MAX_PLAYER_CHIPS = 10;
 
-export default function ServerCard({ server, publicIp, onError }: Props) {
+export default function ServerCard({ server, publicIp, onError, onDelayed }: Props) {
   const [busy, setBusy] = useState<ServerAction | null>(null);
+  const [delaying, setDelaying] = useState(false);
 
   const act = async (action: ServerAction) => {
     setBusy(action);
@@ -26,6 +28,18 @@ export default function ServerCard({ server, publicIp, onError }: Props) {
       onError(`${server.name}: ${err.message}`);
     } finally {
       setBusy(null);
+    }
+  };
+
+  const delayRestart = async () => {
+    setDelaying(true);
+    try {
+      const r = await api.delayRestart(server.id);
+      onDelayed(server.id, r.nextRestartAt);
+    } catch (err: any) {
+      onError(`${server.name}: ${err.message}`);
+    } finally {
+      setDelaying(false);
     }
   };
 
@@ -106,6 +120,15 @@ export default function ServerCard({ server, publicIp, onError }: Props) {
               {busy === 'pause' ? '…' : '⏸ Pause'}
             </button>
           )}
+        </div>
+      )}
+
+      {server.can_control && server.restart_enabled && server.nextRestartAt && (
+        <div className="restart-notice">
+          <span className="muted">Next restart {formatRelative(server.nextRestartAt)}</span>
+          <button className="btn btn-small" disabled={delaying} onClick={delayRestart}>
+            {delaying ? '…' : '⏰ Delay 30m'}
+          </button>
         </div>
       )}
     </div>
