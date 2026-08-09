@@ -195,21 +195,25 @@ class DiscordBot {
     }, 1500);
   }
 
-  private buildStatusEmbed(statuses: ServerStatus[]): EmbedBuilder {
-    const allUp = statuses.length > 0 && statuses.every((s) => s.state === 'running');
-    const anyUp = statuses.some((s) => s.state === 'running');
-    const embed = new EmbedBuilder()
-      .setTitle('🎮 Game Server Status')
-      .setColor(allUp ? 0x3ba55d : anyUp ? 0xfaa61a : 0xed4245)
-      .setTimestamp(new Date());
+  private static readonly STATE_COLOR: Record<ContainerState, number> = {
+    running: 0x3ba55d, paused: 0xfaa61a, restarting: 0xfaa61a, exited: 0xed4245,
+    created: 0x99aab5, dead: 0xed4245, removing: 0x99aab5, not_found: 0x99aab5,
+  };
+
+  /** One embed per server, so each shows as its own card instead of sharing a single embed. */
+  private buildStatusEmbeds(statuses: ServerStatus[]): EmbedBuilder[] {
     if (statuses.length === 0) {
-      embed.setDescription('No servers have been imported yet.');
-      return embed;
+      return [
+        new EmbedBuilder()
+          .setTitle('🎮 Game Server Status')
+          .setColor(0x99aab5)
+          .setDescription('No servers have been imported yet.'),
+      ];
     }
 
     const publicIp = getPublicIp();
-    // Discord allows at most 25 fields per embed
-    for (const s of statuses.slice(0, 25)) {
+    // Discord allows at most 10 embeds per message
+    return statuses.slice(0, 10).map((s) => {
       const lines = [
         `**Game:** ${GAME_LABELS[s.game] || s.game}`,
         `**Uptime:** ${s.state === 'running' ? formatUptime(s.startedAt) : '—'}`,
@@ -223,13 +227,12 @@ class DiscordBot {
         const extra = s.players.length > MAX_EMBED_PLAYERS ? ` +${s.players.length - MAX_EMBED_PLAYERS} more` : '';
         lines.push(shown + extra);
       }
-      embed.addFields({
-        name: `${STATE_EMOJI[s.state] || '❓'} ${s.name}`,
-        value: lines.join('\n').slice(0, 1024),
-        inline: false,
-      });
-    }
-    return embed;
+      return new EmbedBuilder()
+        .setTitle(`${STATE_EMOJI[s.state] || '❓'} ${s.name}`)
+        .setColor(DiscordBot.STATE_COLOR[s.state] ?? 0x99aab5)
+        .setDescription(lines.join('\n').slice(0, 4096))
+        .setTimestamp(new Date());
+    });
   }
 
   private buildButtons(statuses: ServerStatus[]): ActionRowBuilder<ButtonBuilder>[] {
@@ -291,7 +294,7 @@ class DiscordBot {
     for (const [channelId, statuses] of groups) {
       const channel = await this.client.channels.fetch(channelId).catch(() => null);
       if (!channel || !(channel instanceof TextChannel)) continue;
-      const payload = { embeds: [this.buildStatusEmbed(statuses)], components: this.buildButtons(statuses) };
+      const payload = { embeds: this.buildStatusEmbeds(statuses), components: this.buildButtons(statuses) };
       const existingId = getStatusMessageId(channelId);
       if (existingId) {
         const existing = await channel.messages.fetch(existingId).catch(() => null);
@@ -441,7 +444,7 @@ class DiscordBot {
     }
 
     if (interaction.commandName === 'servers') {
-      await interaction.reply({ embeds: [this.buildStatusEmbed(monitor.getAll())], ephemeral: true });
+      await interaction.reply({ embeds: this.buildStatusEmbeds(monitor.getAll()), ephemeral: true });
       return;
     }
 
