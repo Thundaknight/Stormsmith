@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import AzerothAccounts from '../components/AzerothAccounts';
 import ModsPanel from '../components/ModsPanel';
 import PalworldSettings from '../components/PalworldSettings';
 import StatusBadge from '../components/StatusBadge';
@@ -382,6 +383,8 @@ export default function ServerDetail() {
                   <button className="btn btn-primary" disabled={rconBusy || !command.trim()}>Send</button>
                 </form>
               </div>
+
+              {server.game === 'azerothcore' && <AzerothAccounts serverId={server.id} />}
 
               <div className="card">
                 <h2>In-game Message</h2>
