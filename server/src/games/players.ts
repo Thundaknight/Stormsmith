@@ -1,18 +1,21 @@
 import { sendRconCommand } from '../rcon';
 import type { GameServer } from '../types';
+import { fetchAzerothPlayers, hasDbConfig } from './azerothcore';
 
 /**
- * Per-game RCON queries for the connected player list.
- * Games without an entry (or without RCON configured) simply don't
- * report players — the UI hides those fields.
+ * Per-game connected-player queries. Most games query over RCON; AzerothCore
+ * has no RCON player list that excludes mod-playerbots bots, so it queries
+ * the character/auth databases directly instead (see games/azerothcore.ts).
+ * Games without an entry (or without the needed connection configured)
+ * simply don't report players — the UI hides those fields.
  */
 
-interface PlayerQuery {
+interface RconPlayerQuery {
   command: string;
   parse(response: string): string[];
 }
 
-const QUERIES: Record<string, PlayerQuery> = {
+const RCON_QUERIES: Record<string, RconPlayerQuery> = {
   palworld: {
     command: 'ShowPlayers',
     // CSV response: "name,playeruid,steamid" header then one line per player
@@ -41,11 +44,13 @@ const QUERIES: Record<string, PlayerQuery> = {
 };
 
 export function supportsPlayerList(server: GameServer): boolean {
-  return !!QUERIES[server.game] && !!(server.rcon_host && server.rcon_port && server.rcon_password);
+  if (server.game === 'azerothcore') return hasDbConfig(server);
+  return !!RCON_QUERIES[server.game] && !!(server.rcon_host && server.rcon_port && server.rcon_password);
 }
 
 export async function fetchPlayers(server: GameServer): Promise<string[]> {
-  const query = QUERIES[server.game];
+  if (server.game === 'azerothcore') return fetchAzerothPlayers(server);
+  const query = RCON_QUERIES[server.game];
   if (!query) throw new Error(`No player query for game '${server.game}'`);
   return query.parse(await sendRconCommand(server, query.command));
 }

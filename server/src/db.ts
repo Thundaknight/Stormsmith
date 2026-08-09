@@ -23,6 +23,7 @@ export function initDb(): void {
       container_name TEXT NOT NULL UNIQUE,
       rcon_host TEXT NOT NULL DEFAULT '',
       rcon_port INTEGER NOT NULL DEFAULT 0,
+      rcon_username TEXT NOT NULL DEFAULT '',
       rcon_password TEXT NOT NULL DEFAULT '',
       broadcast_template TEXT NOT NULL DEFAULT 'say {message}',
       config_path TEXT NOT NULL DEFAULT '',
@@ -33,6 +34,13 @@ export function initDb(): void {
       restart_interval_hours INTEGER NOT NULL DEFAULT 6,
       discord_show INTEGER NOT NULL DEFAULT 1,
       discord_channel_id TEXT NOT NULL DEFAULT '',
+      db_host TEXT NOT NULL DEFAULT '',
+      db_port INTEGER NOT NULL DEFAULT 3306,
+      db_user TEXT NOT NULL DEFAULT '',
+      db_password TEXT NOT NULL DEFAULT '',
+      db_characters_db TEXT NOT NULL DEFAULT 'acore_characters',
+      db_auth_db TEXT NOT NULL DEFAULT 'acore_auth',
+      bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -96,6 +104,14 @@ export function initDb(): void {
 
   addColumn('discord_show', 'discord_show INTEGER NOT NULL DEFAULT 1');
   addColumn('discord_channel_id', "discord_channel_id TEXT NOT NULL DEFAULT ''");
+  addColumn('rcon_username', "rcon_username TEXT NOT NULL DEFAULT ''");
+  addColumn('db_host', "db_host TEXT NOT NULL DEFAULT ''");
+  addColumn('db_port', 'db_port INTEGER NOT NULL DEFAULT 3306');
+  addColumn('db_user', "db_user TEXT NOT NULL DEFAULT ''");
+  addColumn('db_password', "db_password TEXT NOT NULL DEFAULT ''");
+  addColumn('db_characters_db', "db_characters_db TEXT NOT NULL DEFAULT 'acore_characters'");
+  addColumn('db_auth_db', "db_auth_db TEXT NOT NULL DEFAULT 'acore_auth'");
+  addColumn('bot_account_prefix', "bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot'");
 
   // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
   db.prepare(
@@ -187,33 +203,23 @@ export function getServerById(id: number): GameServer | undefined {
   return db.prepare('SELECT * FROM servers WHERE id = ?').get(id) as GameServer | undefined;
 }
 
+const SERVER_FIELDS = [
+  'name', 'game', 'container_name', 'rcon_host', 'rcon_port', 'rcon_username', 'rcon_password',
+  'broadcast_template', 'config_path', 'game_port', 'restart_enabled', 'restart_time', 'restart_mode',
+  'restart_interval_hours', 'discord_show', 'discord_channel_id', 'db_host', 'db_port', 'db_user',
+  'db_password', 'db_characters_db', 'db_auth_db', 'bot_account_prefix',
+] as const;
+
 export function createServer(s: Omit<GameServer, 'id' | 'created_at'>): GameServer {
-  const info = db
-    .prepare(
-      `INSERT INTO servers (name, game, container_name, rcon_host, rcon_port, rcon_password, broadcast_template,
-       config_path, game_port, restart_enabled, restart_time, restart_mode, restart_interval_hours,
-       discord_show, discord_channel_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
-      s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours,
-      s.discord_show, s.discord_channel_id
-    );
+  const columns = SERVER_FIELDS.join(', ');
+  const placeholders = SERVER_FIELDS.map((f) => `@${f}`).join(', ');
+  const info = db.prepare(`INSERT INTO servers (${columns}) VALUES (${placeholders})`).run(s);
   return getServerById(Number(info.lastInsertRowid))!;
 }
 
 export function updateServer(id: number, s: Omit<GameServer, 'id' | 'created_at'>): void {
-  db.prepare(
-    `UPDATE servers SET name = ?, game = ?, container_name = ?, rcon_host = ?, rcon_port = ?,
-     rcon_password = ?, broadcast_template = ?, config_path = ?, game_port = ?, restart_enabled = ?,
-     restart_time = ?, restart_mode = ?, restart_interval_hours = ?, discord_show = ?, discord_channel_id = ?
-     WHERE id = ?`
-  ).run(
-    s.name, s.game, s.container_name, s.rcon_host, s.rcon_port, s.rcon_password, s.broadcast_template,
-    s.config_path, s.game_port, s.restart_enabled, s.restart_time, s.restart_mode, s.restart_interval_hours,
-    s.discord_show, s.discord_channel_id, id
-  );
+  const sets = SERVER_FIELDS.map((f) => `${f} = @${f}`).join(', ');
+  db.prepare(`UPDATE servers SET ${sets} WHERE id = @id`).run({ ...s, id });
 }
 
 export function deleteServer(id: number): void {

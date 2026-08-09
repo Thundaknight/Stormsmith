@@ -38,6 +38,7 @@ const GAME_LABELS: Record<string, string> = {
   rust: 'Rust',
   ark: 'ARK: Survival',
   '7dtd': '7 Days to Die',
+  azerothcore: 'AzerothCore (WoW)',
   custom: 'Custom',
 };
 

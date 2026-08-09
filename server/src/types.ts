@@ -22,6 +22,7 @@ export interface GameServer {
   container_name: string;
   rcon_host: string;
   rcon_port: number;
+  rcon_username: string; // used by SOAP-based games (AzerothCore); empty for Source RCON games
   rcon_password: string;
   broadcast_template: string;
   config_path: string;
@@ -32,6 +33,13 @@ export interface GameServer {
   restart_interval_hours: number;
   discord_show: number;
   discord_channel_id: string; // empty = the default status channel
+  db_host: string; // optional MySQL connection for player queries (AzerothCore)
+  db_port: number;
+  db_user: string;
+  db_password: string;
+  db_characters_db: string;
+  db_auth_db: string;
+  bot_account_prefix: string;
   created_at: string;
 }
 

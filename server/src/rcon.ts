@@ -1,4 +1,5 @@
 import net from 'net';
+import { sendSoapCommand } from './soap';
 import type { GameServer } from './types';
 
 /**
@@ -76,6 +77,9 @@ class PacketReader {
 
 /** Sends a single RCON command; connects per command to avoid stale connections. */
 export function sendRconCommand(server: GameServer, command: string): Promise<string> {
+  // AzerothCore doesn't speak Source RCON — it exposes GM commands over its SOAP interface instead
+  if (server.game === 'azerothcore') return sendSoapCommand(server, command);
+
   if (!server.rcon_host || !server.rcon_port || !server.rcon_password) {
     return Promise.reject(new Error('RCON is not configured for this server'));
   }

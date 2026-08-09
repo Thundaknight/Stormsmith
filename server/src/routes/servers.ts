@@ -8,6 +8,7 @@ import {
   putContainerFile, readContainerFile, writeContainerFile,
 } from '../docker';
 import { discordBot } from '../discord/bot';
+import { hasDbConfig } from '../games/azerothcore';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
@@ -38,6 +39,7 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     discord_show: !!s.discord_show,
     discord_channel_id: s.discord_channel_id,
     rcon_configured: !!(s.rcon_host && s.rcon_port),
+    db_configured: hasDbConfig(s),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
     cpuPercent: status?.cpuPercent ?? null,
@@ -53,7 +55,20 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     created_at: s.created_at,
   };
   if (!includeSecrets) return base;
-  return { ...base, rcon_host: s.rcon_host, rcon_port: s.rcon_port, rcon_password: s.rcon_password };
+  return {
+    ...base,
+    rcon_host: s.rcon_host,
+    rcon_port: s.rcon_port,
+    rcon_username: s.rcon_username,
+    rcon_password: s.rcon_password,
+    db_host: s.db_host,
+    db_port: s.db_port,
+    db_user: s.db_user,
+    db_password: s.db_password,
+    db_characters_db: s.db_characters_db,
+    db_auth_db: s.db_auth_db,
+    bot_account_prefix: s.bot_account_prefix,
+  };
 }
 
 /** Servers visible to the current user, with live status. */
@@ -92,6 +107,7 @@ router.post('/', requireAdmin, (req, res) => {
       container_name,
       rcon_host: rcon_host || '',
       rcon_port: parseInt(rcon_port, 10) || 0,
+      rcon_username: req.body?.rcon_username || '',
       rcon_password: rcon_password || '',
       broadcast_template: broadcast_template ?? 'say {message}',
       config_path: req.body?.config_path || '',
@@ -102,6 +118,13 @@ router.post('/', requireAdmin, (req, res) => {
       restart_interval_hours: 6,
       discord_show: 1,
       discord_channel_id: '',
+      db_host: req.body?.db_host || '',
+      db_port: parseInt(req.body?.db_port, 10) || 3306,
+      db_user: req.body?.db_user || '',
+      db_password: req.body?.db_password || '',
+      db_characters_db: req.body?.db_characters_db || 'acore_characters',
+      db_auth_db: req.body?.db_auth_db || 'acore_auth',
+      bot_account_prefix: req.body?.bot_account_prefix || 'rndbot',
     });
     monitor.refresh().catch(() => {});
     discordBot.refreshStatus();
@@ -144,6 +167,7 @@ router.put('/:id', requireAdmin, (req, res) => {
     container_name: b.container_name ?? server.container_name,
     rcon_host: b.rcon_host ?? server.rcon_host,
     rcon_port: b.rcon_port !== undefined ? parseInt(b.rcon_port, 10) || 0 : server.rcon_port,
+    rcon_username: b.rcon_username ?? server.rcon_username,
     rcon_password: b.rcon_password ?? server.rcon_password,
     broadcast_template: b.broadcast_template ?? server.broadcast_template,
     config_path: b.config_path ?? server.config_path,
@@ -161,6 +185,13 @@ router.put('/:id', requireAdmin, (req, res) => {
     discord_show: b.discord_show !== undefined ? (b.discord_show ? 1 : 0) : server.discord_show,
     discord_channel_id:
       b.discord_channel_id !== undefined ? String(b.discord_channel_id).trim() : server.discord_channel_id,
+    db_host: b.db_host ?? server.db_host,
+    db_port: b.db_port !== undefined ? parseInt(b.db_port, 10) || 3306 : server.db_port,
+    db_user: b.db_user ?? server.db_user,
+    db_password: b.db_password ?? server.db_password,
+    db_characters_db: b.db_characters_db ?? server.db_characters_db,
+    db_auth_db: b.db_auth_db ?? server.db_auth_db,
+    bot_account_prefix: b.bot_account_prefix ?? server.bot_account_prefix,
   });
   monitor.refresh().catch(() => {});
   discordBot.refreshStatus();

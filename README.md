@@ -12,12 +12,13 @@ A self-hosted manager for game servers running as Docker containers on Unraid (o
 - **User management** — admin and user roles, with per-server permissions (view / control / RCON) for each user.
 - **RCON** — built-in console for Source-RCON games (Palworld, Minecraft, Rust, ARK, 7DtD, …) plus one-click in-game broadcast messages with per-game command templates. Palworld servers get a full command palette (kick/ban, save, graceful shutdown, …).
 - **Palworld settings editor** — reads `PalWorldSettings.ini` directly from inside the game container (auto-detecting its location, no extra mounts), and lets you view and edit every setting with sliders, toggles, and dropdowns, then writes it back.
+- **AzerothCore (WoW) support** — GM commands run over the worldserver's SOAP interface (kick, mute, ban, announce, teleport, server shutdown/restart, …) from the web console or Discord's `/rcon`. An optional read-only database connection reports the real online player count and names with mod-playerbots bots filtered out, instead of the bot-inflated count the game itself reports.
 - **Discord bot** — auto-updating status embed with start/stop/restart buttons, slash commands (`/servers`, `/server`, `/rcon`, `/broadcast`), all gated by per-role feature permissions and per-command toggles configured in the web UI. Each server can display in its own channel, so you can run multiple status channels.
 - **Scheduled restarts** — daily at a set time, or every N hours from a start time, with in-game RCON warnings at 30/5/1 minutes before. A restart is automatically skipped if the server already restarted within the last hour, and any upcoming restart can be pushed back 30 minutes at a time from the dashboard, the server page, or a Discord button.
 
 ## Tech stack
 
-- **Backend:** Node.js 22, TypeScript, Express, better-sqlite3, dockerode, discord.js, ws, and a built-in Source RCON client (lenient response matching for Palworld's non-standard RCON)
+- **Backend:** Node.js 22, TypeScript, Express, better-sqlite3, dockerode, discord.js, ws, mysql2, and a built-in Source RCON client (lenient response matching for Palworld's non-standard RCON) plus a SOAP client for AzerothCore
 - **Frontend:** React 18 + Vite
 - **Storage:** single SQLite file in `/app/data`
 
@@ -74,6 +75,15 @@ To build the image yourself instead of pulling from Docker Hub: `docker build -t
 - The **RCON host** is usually your Unraid IP, with the RCON port mapped by the game container. Remember to enable RCON in the game's own config (e.g. `RCONEnabled=True` for Palworld).
 - The **broadcast template** is the RCON command used for in-game messages. `{message}` is replaced with the text; `{message_underscored}` replaces spaces with underscores (needed for Palworld's `Broadcast`).
 - Satisfactory and Valheim (vanilla) do not support RCON — you can still import and manage their containers; just leave RCON blank.
+
+## AzerothCore notes
+
+AzerothCore doesn't speak Source RCON — it exposes GM commands over its worldserver **SOAP** interface instead, so importing one as game type "AzerothCore (WoW)" repurposes the RCON fields as SOAP settings:
+
+- Enable SOAP in `worldserver.conf`: `SOAP.Enabled = 1` (default port `7878`, matches the preset).
+- The "GM account" needs GM level 3+, and its row in `account_access` must have `RealmID = -1` (all realms).
+- The RCON console, `/rcon` in Discord, and the broadcast box all work exactly as with other games — commands go out over SOAP instead of Source RCON. A GM command palette on the server page covers the common ones (kick, mute, ban, announce, teleport, `.server shutdown`/`restart`, …), verified against the [AzerothCore GM commands wiki](https://www.azerothcore.org/wiki/gm-commands).
+- **Player counts**: `mod-playerbots`' random bots show up as ordinary online characters, so there's no in-game command that reports real players only. If you want an accurate count, fill in the optional **Player database** connection in the server's Settings tab (host/port/user/password + the `acore_characters`/`acore_auth` database names) — Stormsmith then queries online characters directly and excludes any account starting with the bot prefix (`AiPlayerbot.RandomBotAccountPrefix`, default `rndbot`). Leave the host blank to skip this; the server still works, it just won't show a player count.
 
 ## Development
 

@@ -26,6 +26,7 @@ export interface GameServer {
   discord_show: boolean;
   discord_channel_id: string;
   rcon_configured: boolean;
+  db_configured: boolean;
   state: ContainerState;
   statusText: string;
   cpuPercent?: number | null;
@@ -39,7 +40,15 @@ export interface GameServer {
   can_rcon: boolean;
   rcon_host?: string;
   rcon_port?: number;
+  rcon_username?: string;
   rcon_password?: string;
+  db_host?: string;
+  db_port?: number;
+  db_user?: string;
+  db_password?: string;
+  db_characters_db?: string;
+  db_auth_db?: string;
+  bot_account_prefix?: string;
   created_at?: string;
 }
 
@@ -121,5 +130,6 @@ export const GAME_PRESETS: Record<string, { label: string; rconPort: number; gam
   rust: { label: 'Rust', rconPort: 28016, gamePort: 28015, broadcast: 'say {message}' },
   ark: { label: 'ARK: Survival', rconPort: 27020, gamePort: 7777, broadcast: 'ServerChat {message}' },
   '7dtd': { label: '7 Days to Die', rconPort: 8081, gamePort: 26900, broadcast: 'say "{message}"' },
+  azerothcore: { label: 'AzerothCore (WoW)', rconPort: 7878, gamePort: 8085, broadcast: '.announce {message}' },
   custom: { label: 'Other / Custom', rconPort: 0, gamePort: 0, broadcast: 'say {message}' },
 };

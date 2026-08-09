@@ -62,6 +62,7 @@ export default function ServerDetail() {
       container_name: s.container_name,
       rcon_host: s.rcon_host || '',
       rcon_port: String(s.rcon_port || ''),
+      rcon_username: s.rcon_username || '',
       rcon_password: s.rcon_password || '',
       broadcast_template: s.broadcast_template || '',
       config_path: s.config_path || '',
@@ -70,6 +71,13 @@ export default function ServerDetail() {
       restart_mode: s.restart_mode || 'daily',
       restart_interval_hours: String(s.restart_interval_hours || 6),
       discord_channel_id: s.discord_channel_id || '',
+      db_host: s.db_host || '',
+      db_port: s.db_port ? String(s.db_port) : '3306',
+      db_user: s.db_user || '',
+      db_password: s.db_password || '',
+      db_characters_db: s.db_characters_db || 'acore_characters',
+      db_auth_db: s.db_auth_db || 'acore_auth',
+      bot_account_prefix: s.bot_account_prefix || 'rndbot',
     });
     setRestartEnabled(!!s.restart_enabled);
     setDiscordShow(s.discord_show !== false);
@@ -311,10 +319,11 @@ export default function ServerDetail() {
           {server.can_rcon && (
             <>
               <div className="card">
-                <h2>RCON Console</h2>
+                <h2>{server.game === 'azerothcore' ? 'GM Console' : 'RCON Console'}</h2>
                 {!server.rcon_configured && (
                   <div className="alert alert-warn">
-                    RCON is not configured for this server{isAdmin ? ' — set the host, port, and password in the Settings tab.' : '.'}
+                    {server.game === 'azerothcore' ? 'SOAP' : 'RCON'} is not configured for this server
+                    {isAdmin ? ' — set the host, port, and password in the Settings tab.' : '.'}
                   </div>
                 )}
                 {commands && (
@@ -432,15 +441,22 @@ export default function ServerDetail() {
                 <span className="hint">Shown with the public IP as the join address.</span>
               </label>
               <label>
-                RCON host
+                {form.game === 'azerothcore' ? 'SOAP host' : 'RCON host'}
                 <input value={form.rcon_host || ''} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" />
               </label>
               <label>
-                RCON port
-                <input type="number" value={form.rcon_port || ''} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} />
+                {form.game === 'azerothcore' ? 'SOAP port' : 'RCON port'}
+                <input type="number" value={form.rcon_port || ''} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} placeholder={form.game === 'azerothcore' ? '7878' : ''} />
               </label>
+              {form.game === 'azerothcore' && (
+                <label>
+                  GM account username
+                  <input value={form.rcon_username || ''} onChange={(e) => setForm({ ...form, rcon_username: e.target.value })} placeholder="A GM level 3+ account" />
+                  <span className="hint">The account's access must have realmID = -1 in account_access.</span>
+                </label>
+              )}
               <label>
-                RCON password
+                {form.game === 'azerothcore' ? 'GM account password' : 'RCON password'}
                 <input type="password" value={form.rcon_password || ''} onChange={(e) => setForm({ ...form, rcon_password: e.target.value })} />
               </label>
               <label className="span-2">
@@ -457,6 +473,47 @@ export default function ServerDetail() {
                   available if your server needs the old underscore workaround.
                 </span>
               </label>
+              {form.game === 'azerothcore' && (
+                <div className="span-2 restart-schedule">
+                  <div className="setting-label" style={{ fontWeight: 700 }}>Player database (optional)</div>
+                  <span className="hint">
+                    AzerothCore has no built-in way to report player counts without mod-playerbots bots included.
+                    Connecting to the character/auth databases lets Stormsmith show only real players. Leave the
+                    host blank to skip this — the server will still work, just without a player count.
+                  </span>
+                  <div className="restart-options">
+                    <label>
+                      DB host
+                      <input value={form.db_host || ''} onChange={(e) => setForm({ ...form, db_host: e.target.value })} placeholder="Usually your Unraid IP" />
+                    </label>
+                    <label>
+                      DB port
+                      <input type="number" value={form.db_port || ''} onChange={(e) => setForm({ ...form, db_port: e.target.value })} placeholder="3306" />
+                    </label>
+                    <label>
+                      DB user
+                      <input value={form.db_user || ''} onChange={(e) => setForm({ ...form, db_user: e.target.value })} />
+                    </label>
+                    <label>
+                      DB password
+                      <input type="password" value={form.db_password || ''} onChange={(e) => setForm({ ...form, db_password: e.target.value })} />
+                    </label>
+                    <label>
+                      Characters database name
+                      <input value={form.db_characters_db || ''} onChange={(e) => setForm({ ...form, db_characters_db: e.target.value })} placeholder="acore_characters" />
+                    </label>
+                    <label>
+                      Auth database name
+                      <input value={form.db_auth_db || ''} onChange={(e) => setForm({ ...form, db_auth_db: e.target.value })} placeholder="acore_auth" />
+                    </label>
+                    <label>
+                      Bot account prefix
+                      <input value={form.bot_account_prefix || ''} onChange={(e) => setForm({ ...form, bot_account_prefix: e.target.value })} placeholder="rndbot" />
+                      <span className="hint">Matches AiPlayerbot.RandomBotAccountPrefix — accounts starting with this are excluded.</span>
+                    </label>
+                  </div>
+                </div>
+              )}
               <div className="span-2 restart-schedule">
                 <label className="checkbox-label">
                   <input type="checkbox" checked={discordShow} onChange={(e) => setDiscordShow(e.target.checked)} />
