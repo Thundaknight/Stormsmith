@@ -3,6 +3,59 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import type { GameServer, Permission, User } from '../types';
 
+type PermKey = 'can_view' | 'can_control' | 'can_rcon' | 'can_configure';
+
+const EMPTY_PERM = (serverId: number): Permission => ({
+  server_id: serverId, can_view: false, can_control: false, can_rcon: false, can_configure: false,
+});
+
+/** Applies the "control/rcon/configure imply view; unchecking view clears the rest" rule shared by both grids. */
+function applyPermRule(cur: Permission, key: PermKey, value: boolean): Permission {
+  const updated = { ...cur, [key]: value };
+  if ((key === 'can_control' || key === 'can_rcon' || key === 'can_configure') && value) updated.can_view = true;
+  if (key === 'can_view' && !value) {
+    updated.can_control = false;
+    updated.can_rcon = false;
+    updated.can_configure = false;
+  }
+  return updated;
+}
+
+function PermissionGrid({ servers, perms, onChange }: {
+  servers: GameServer[];
+  perms: Map<number, Permission>;
+  onChange: (serverId: number, key: PermKey, value: boolean) => void;
+}) {
+  if (servers.length === 0) return <p className="muted">No servers imported yet.</p>;
+  return (
+    <>
+      <table className="table">
+        <thead>
+          <tr><th>Server</th><th>View</th><th>Control</th><th>RCON</th><th>Configure</th></tr>
+        </thead>
+        <tbody>
+          {servers.map((s) => {
+            const p = perms.get(s.id) || EMPTY_PERM(s.id);
+            return (
+              <tr key={s.id}>
+                <td>{s.name}</td>
+                <td><input type="checkbox" checked={p.can_view} onChange={(e) => onChange(s.id, 'can_view', e.target.checked)} /></td>
+                <td><input type="checkbox" checked={p.can_control} onChange={(e) => onChange(s.id, 'can_control', e.target.checked)} /></td>
+                <td><input type="checkbox" checked={p.can_rcon} onChange={(e) => onChange(s.id, 'can_rcon', e.target.checked)} /></td>
+                <td><input type="checkbox" checked={p.can_configure} onChange={(e) => onChange(s.id, 'can_configure', e.target.checked)} /></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="muted">
+        View = see status · Control = start/stop/restart/pause · RCON = console + in-game messages ·
+        Configure = edit server settings, config file, and mods
+      </p>
+    </>
+  );
+}
+
 export default function Users() {
   const { user: me } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
@@ -10,9 +63,15 @@ export default function Users() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  // Permission editor
+  // Permission editor (existing active users)
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [perms, setPerms] = useState<Map<number, Permission>>(new Map());
+
+  // Onboarding (approving a pending sign-up)
+  const [onboardingUser, setOnboardingUser] = useState<User | null>(null);
+  const [onboardingRole, setOnboardingRole] = useState<'user' | 'admin'>('user');
+  const [onboardingPerms, setOnboardingPerms] = useState<Map<number, Permission>>(new Map());
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([api.listUsers(), api.listServers()])
@@ -28,13 +87,36 @@ export default function Users() {
   const pending = users.filter((u) => u.status === 'pending');
   const active = users.filter((u) => u.status !== 'pending');
 
-  const approve = async (u: User) => {
+  const startOnboarding = (u: User) => {
+    setOnboardingUser(u);
+    setOnboardingRole('user');
+    setOnboardingPerms(new Map());
+  };
+
+  const setOnboardingPerm = (serverId: number, key: PermKey, value: boolean) => {
+    setOnboardingPerms((prev) => {
+      const next = new Map(prev);
+      next.set(serverId, applyPermRule(prev.get(serverId) || EMPTY_PERM(serverId), key, value));
+      return next;
+    });
+  };
+
+  const submitOnboarding = async () => {
+    if (!onboardingUser) return;
+    setOnboardingBusy(true);
+    setError('');
     try {
-      await api.approveUser(u.id);
-      setNotice(`${u.username} approved`);
+      await api.approveUser(onboardingUser.id, {
+        role: onboardingRole,
+        permissions: onboardingRole === 'user' ? [...onboardingPerms.values()] : undefined,
+      });
+      setNotice(`${onboardingUser.username} approved`);
+      setOnboardingUser(null);
       load();
     } catch (err: any) {
       setError(err.message);
+    } finally {
+      setOnboardingBusy(false);
     }
   };
 
@@ -84,25 +166,20 @@ export default function Users() {
       const r = await api.getUserPermissions(u.id);
       setPerms(new Map(r.permissions.map((p) => [
         p.server_id,
-        { server_id: p.server_id, can_view: !!p.can_view, can_control: !!p.can_control, can_rcon: !!p.can_rcon },
+        {
+          server_id: p.server_id, can_view: !!p.can_view, can_control: !!p.can_control,
+          can_rcon: !!p.can_rcon, can_configure: !!p.can_configure,
+        },
       ])));
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const setPerm = (serverId: number, key: 'can_view' | 'can_control' | 'can_rcon', value: boolean) => {
+  const setPerm = (serverId: number, key: PermKey, value: boolean) => {
     setPerms((prev) => {
       const next = new Map(prev);
-      const cur = next.get(serverId) || { server_id: serverId, can_view: false, can_control: false, can_rcon: false };
-      const updated = { ...cur, [key]: value };
-      // control/rcon imply view
-      if ((key === 'can_control' || key === 'can_rcon') && value) updated.can_view = true;
-      if (key === 'can_view' && !value) {
-        updated.can_control = false;
-        updated.can_rcon = false;
-      }
-      next.set(serverId, updated);
+      next.set(serverId, applyPermRule(prev.get(serverId) || EMPTY_PERM(serverId), key, value));
       return next;
     });
   };
@@ -145,7 +222,7 @@ export default function Users() {
                   <td>{u.username}</td>
                   <td className="muted">{u.discord_username || '—'}</td>
                   <td className="table-actions">
-                    <button className="btn btn-small btn-primary" onClick={() => approve(u)}>Approve</button>
+                    <button className="btn btn-small btn-primary" onClick={() => startOnboarding(u)}>Approve</button>
                     <button className="btn btn-small btn-danger-outline" onClick={() => reject(u)}>Reject</button>
                   </td>
                 </tr>
@@ -188,30 +265,41 @@ export default function Users() {
         <p className="muted">Admins can manage everything. Users only see servers you grant below.</p>
       </div>
 
+      {onboardingUser && (
+        <div className="modal-backdrop" onClick={() => setOnboardingUser(null)}>
+          <div className="card modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Approve {onboardingUser.username}</h2>
+            <p className="muted">
+              Choose this account's role and, if it's a regular user, what it can access before letting it in.
+            </p>
+            <div className="checkbox-row" style={{ marginBottom: 14 }}>
+              <label className="checkbox-label">
+                <input type="radio" name="onboard-role" checked={onboardingRole === 'user'} onChange={() => setOnboardingRole('user')} />
+                User — granular per-server access
+              </label>
+              <label className="checkbox-label">
+                <input type="radio" name="onboard-role" checked={onboardingRole === 'admin'} onChange={() => setOnboardingRole('admin')} />
+                Admin — full access to everything
+              </label>
+            </div>
+            {onboardingRole === 'user' && (
+              <PermissionGrid servers={servers} perms={onboardingPerms} onChange={setOnboardingPerm} />
+            )}
+            <div className="btn-row">
+              <button className="btn btn-primary" disabled={onboardingBusy} onClick={submitOnboarding}>
+                {onboardingBusy ? 'Approving…' : 'Approve'}
+              </button>
+              <button className="btn" onClick={() => setOnboardingUser(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingUser && (
         <div className="modal-backdrop" onClick={() => setEditingUser(null)}>
           <div className="card modal" onClick={(e) => e.stopPropagation()}>
             <h2>Permissions — {editingUser.username}</h2>
-            {servers.length === 0 && <p className="muted">No servers imported yet.</p>}
-            <table className="table">
-              <thead>
-                <tr><th>Server</th><th>View</th><th>Control</th><th>RCON</th></tr>
-              </thead>
-              <tbody>
-                {servers.map((s) => {
-                  const p = perms.get(s.id) || { server_id: s.id, can_view: false, can_control: false, can_rcon: false };
-                  return (
-                    <tr key={s.id}>
-                      <td>{s.name}</td>
-                      <td><input type="checkbox" checked={p.can_view} onChange={(e) => setPerm(s.id, 'can_view', e.target.checked)} /></td>
-                      <td><input type="checkbox" checked={p.can_control} onChange={(e) => setPerm(s.id, 'can_control', e.target.checked)} /></td>
-                      <td><input type="checkbox" checked={p.can_rcon} onChange={(e) => setPerm(s.id, 'can_rcon', e.target.checked)} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <p className="muted">View = see status · Control = start/stop/restart/pause · RCON = console + in-game messages</p>
+            <PermissionGrid servers={servers} perms={perms} onChange={setPerm} />
             <div className="btn-row">
               <button className="btn btn-primary" onClick={savePermissions}>Save</button>
               <button className="btn" onClick={() => setEditingUser(null)}>Cancel</button>

@@ -223,12 +223,13 @@ export default function ServerDetail() {
     navigate('/');
   };
 
+  const canConfigure = isAdmin || server.can_configure;
   const tabs: Array<{ id: Tab; label: string }> = [{ id: 'controls', label: 'Controls' }];
-  if (isAdmin && server.game === 'palworld') {
+  if (canConfigure && server.game === 'palworld') {
     tabs.push({ id: 'config', label: 'Server Config' });
     tabs.push({ id: 'mods', label: 'Mods' });
   }
-  if (isAdmin) tabs.push({ id: 'settings', label: 'Settings' });
+  if (canConfigure) tabs.push({ id: 'settings', label: 'Settings' });
 
   const commands = GAME_COMMANDS[server.game];
   const supportsConsole = gameSupportsConsole(server.game);
@@ -335,7 +336,7 @@ export default function ServerDetail() {
                 {!server.rcon_configured && (
                   <div className="alert alert-warn">
                     {server.game === 'azerothcore' ? 'SOAP' : 'RCON'} is not configured for this server
-                    {isAdmin ? ' — set the host, port, and password in the Settings tab.' : '.'}
+                    {canConfigure ? ' — set the host, port, and password in the Settings tab.' : '.'}
                   </div>
                 )}
                 {commands && (
@@ -420,15 +421,15 @@ export default function ServerDetail() {
         </>
       )}
 
-      {tab === 'config' && isAdmin && server.game === 'palworld' && (
+      {tab === 'config' && canConfigure && server.game === 'palworld' && (
         <PalworldSettings serverId={server.id} serverState={state} />
       )}
 
-      {tab === 'mods' && isAdmin && server.game === 'palworld' && (
+      {tab === 'mods' && canConfigure && server.game === 'palworld' && (
         <ModsPanel serverId={server.id} serverState={state} />
       )}
 
-      {tab === 'settings' && isAdmin && (
+      {tab === 'settings' && canConfigure && (
         <>
           <div className="card">
             <h2>Stormsmith Settings</h2>
@@ -643,11 +644,13 @@ export default function ServerDetail() {
 
           <CustomFields serverId={server.id} initialFields={server.custom_fields} />
 
-          <div className="card danger-zone">
-            <h2>Danger Zone</h2>
-            <p className="muted">Removes this server from Stormsmith only — the Docker container and its data are not touched.</p>
-            <button className="btn btn-danger-outline" onClick={remove}>Remove server from Stormsmith</button>
-          </div>
+          {isAdmin && (
+            <div className="card danger-zone">
+              <h2>Danger Zone</h2>
+              <p className="muted">Removes this server from Stormsmith only — the Docker container and its data are not touched.</p>
+              <button className="btn btn-danger-outline" onClick={remove}>Remove server from Stormsmith</button>
+            </div>
+          )}
         </>
       )}
     </div>

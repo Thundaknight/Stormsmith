@@ -75,6 +75,7 @@ export interface ServerPermission {
   can_view: number;
   can_control: number;
   can_rcon: number;
+  can_configure: number;
 }
 
 export type ContainerState =

@@ -82,9 +82,10 @@ router.get('/', (req, res) => {
   const servers = listServers().filter((s) => userCan(user, s.id, 'view'));
   res.json({
     servers: servers.map((s) => ({
-      ...publicServer(s, user.role === 'admin'),
+      ...publicServer(s, user.role === 'admin' || userCan(user, s.id, 'configure')),
       can_control: userCan(user, s.id, 'control'),
       can_rcon: userCan(user, s.id, 'rcon'),
+      can_configure: userCan(user, s.id, 'configure'),
     })),
     dockerError: monitor.getLastError(),
     publicIp: getPublicIp(),
@@ -154,14 +155,15 @@ router.get('/:id', requireServerPermission('view'), (req, res) => {
   const user = req.user!;
   res.json({
     server: {
-      ...publicServer(server, user.role === 'admin'),
+      ...publicServer(server, user.role === 'admin' || userCan(user, server.id, 'configure')),
       can_control: userCan(user, server.id, 'control'),
       can_rcon: userCan(user, server.id, 'rcon'),
+      can_configure: userCan(user, server.id, 'configure'),
     },
   });
 });
 
-router.put('/:id', requireAdmin, (req, res) => {
+router.put('/:id', requireServerPermission('configure'), (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
   if (!server) {
     res.status(404).json({ error: 'Server not found' });
@@ -218,7 +220,7 @@ router.delete('/:id', requireAdmin, (req, res) => {
 });
 
 /** Replace this server's custom embed fields (message or link entries shown on the dashboard and in Discord). */
-router.put('/:id/fields', requireAdmin, (req, res) => {
+router.put('/:id/fields', requireServerPermission('configure'), (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
   if (!server) {
     res.status(404).json({ error: 'Server not found' });
@@ -344,8 +346,8 @@ async function resolveConfigPath(server: GameServer): Promise<{ path: string; ra
   );
 }
 
-/** Read the game config file from inside the container (admin only). */
-router.get('/:id/config', requireAdmin, asyncRoute(async (req, res) => {
+/** Read the game config file from inside the container (requires configure permission). */
+router.get('/:id/config', requireServerPermission('configure'), asyncRoute(async (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
   if (!server) {
     res.status(404).json({ error: 'Server not found' });
@@ -360,8 +362,8 @@ router.get('/:id/config', requireAdmin, asyncRoute(async (req, res) => {
   });
 }));
 
-/** Write updated settings back into the container's config file (admin only). */
-router.put('/:id/config', requireAdmin, asyncRoute(async (req, res) => {
+/** Write updated settings back into the container's config file (requires configure permission). */
+router.put('/:id/config', requireServerPermission('configure'), asyncRoute(async (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
   if (!server) {
     res.status(404).json({ error: 'Server not found' });
@@ -416,7 +418,7 @@ function safeModFileName(name: string): string {
 }
 
 /** List mod files (requires the container to be running). */
-router.get('/:id/mods', requireAdmin, asyncRoute(async (req, res) => {
+router.get('/:id/mods', requireServerPermission('configure'), asyncRoute(async (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
   if (!server) {
     res.status(404).json({ error: 'Server not found' });
@@ -436,7 +438,7 @@ router.get('/:id/mods', requireAdmin, asyncRoute(async (req, res) => {
 /** Upload a mod file (works even while the container is stopped). */
 router.post(
   '/:id/mods',
-  requireAdmin,
+  requireServerPermission('configure'),
   express.raw({ type: () => true, limit: '2gb' }),
   asyncRoute(async (req, res) => {
     const server = getServerById(parseInt(req.params.id, 10));
@@ -458,7 +460,7 @@ router.post(
 );
 
 /** Delete a mod file (requires the container to be running). */
-router.delete('/:id/mods/:filename', requireAdmin, asyncRoute(async (req, res) => {
+router.delete('/:id/mods/:filename', requireServerPermission('configure'), asyncRoute(async (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
   if (!server) {
     res.status(404).json({ error: 'Server not found' });

@@ -54,6 +54,7 @@ export interface GameServer {
   nextRestartAt?: string | null;
   can_control: boolean;
   can_rcon: boolean;
+  can_configure: boolean;
   rcon_host?: string;
   rcon_port?: number;
   rcon_username?: string;
@@ -122,6 +123,7 @@ export interface Permission {
   can_view: boolean;
   can_control: boolean;
   can_rcon: boolean;
+  can_configure: boolean;
 }
 
 export interface DiscordConfigView {

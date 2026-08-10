@@ -80,6 +80,7 @@ export function initDb(): void {
       can_view INTEGER NOT NULL DEFAULT 1,
       can_control INTEGER NOT NULL DEFAULT 0,
       can_rcon INTEGER NOT NULL DEFAULT 0,
+      can_configure INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, server_id)
     );
 
@@ -147,6 +148,7 @@ export function initDb(): void {
   addColumnTo('discord_config', 'oauth_client_secret', "oauth_client_secret TEXT NOT NULL DEFAULT ''");
   addColumnTo('discord_config', 'oauth_redirect_uri', "oauth_redirect_uri TEXT NOT NULL DEFAULT ''");
   addColumnTo('discord_config', 'oauth_restrict_to_guild', 'oauth_restrict_to_guild INTEGER NOT NULL DEFAULT 1');
+  addColumnTo('server_permissions', 'can_configure', 'can_configure INTEGER NOT NULL DEFAULT 0');
 
   // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
   db.prepare(
@@ -348,18 +350,22 @@ export function listPermissionsForUser(userId: number): ServerPermission[] {
 
 export function setPermissionsForUser(
   userId: number,
-  perms: Array<{ server_id: number; can_view: boolean; can_control: boolean; can_rcon: boolean }>
+  perms: Array<{
+    server_id: number; can_view: boolean; can_control: boolean; can_rcon: boolean; can_configure: boolean;
+  }>
 ): void {
   const del = db.prepare('DELETE FROM server_permissions WHERE user_id = ?');
   const ins = db.prepare(
-    `INSERT INTO server_permissions (user_id, server_id, can_view, can_control, can_rcon)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO server_permissions (user_id, server_id, can_view, can_control, can_rcon, can_configure)
+     VALUES (?, ?, ?, ?, ?, ?)`
   );
   db.transaction(() => {
     del.run(userId);
     for (const p of perms) {
-      if (!p.can_view && !p.can_control && !p.can_rcon) continue;
-      ins.run(userId, p.server_id, p.can_view ? 1 : 0, p.can_control ? 1 : 0, p.can_rcon ? 1 : 0);
+      if (!p.can_view && !p.can_control && !p.can_rcon && !p.can_configure) continue;
+      ins.run(
+        userId, p.server_id, p.can_view ? 1 : 0, p.can_control ? 1 : 0, p.can_rcon ? 1 : 0, p.can_configure ? 1 : 0
+      );
     }
   })();
 }

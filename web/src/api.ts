@@ -109,13 +109,15 @@ export const api = {
 
   // users
   listUsers: () => request<{ users: User[] }>('GET', '/api/users'),
-  approveUser: (id: number) => request<{ user: User }>('POST', `/api/users/${id}/approve`),
+  approveUser: (id: number, data?: { role?: string; permissions?: Permission[] }) =>
+    request<{ user: User }>('POST', `/api/users/${id}/approve`, data),
   updateUser: (id: number, data: { password?: string; role?: string }) =>
     request<{ user: User }>('PUT', `/api/users/${id}`, data),
   deleteUser: (id: number) => request<{ ok: boolean }>('DELETE', `/api/users/${id}`),
   getUserPermissions: (id: number) =>
-    request<{ permissions: Array<{ server_id: number; can_view: number; can_control: number; can_rcon: number }> }>(
-      'GET', `/api/users/${id}/permissions`),
+    request<{
+      permissions: Array<{ server_id: number; can_view: number; can_control: number; can_rcon: number; can_configure: number }>;
+    }>('GET', `/api/users/${id}/permissions`),
   setUserPermissions: (id: number, permissions: Permission[]) =>
     request<{ permissions: unknown }>('PUT', `/api/users/${id}/permissions`, { permissions }),
 

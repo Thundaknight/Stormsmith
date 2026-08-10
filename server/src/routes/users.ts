@@ -29,7 +29,11 @@ router.get('/', (_req, res) => {
   res.json({ users: listUsers().map(publicUser) });
 });
 
-/** Approves a pending Discord sign-up so it can actually log in. */
+/**
+ * Approves a pending Discord sign-up so it can actually log in — this doubles as the
+ * onboarding step: the admin picks a role and, for a regular user, per-server access
+ * right here, rather than approving blind and configuring permissions separately.
+ */
 router.post('/:id/approve', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const user = getUserById(id);
@@ -37,7 +41,26 @@ router.post('/:id/approve', (req, res) => {
     res.status(404).json({ error: 'User not found' });
     return;
   }
+  const { role, permissions } = req.body || {};
+  if (role !== undefined && role !== 'admin' && role !== 'user') {
+    res.status(400).json({ error: "Role must be 'admin' or 'user'" });
+    return;
+  }
   approveUser(id);
+  if (role !== undefined) updateUser(id, { role });
+  const effectiveRole = role ?? user.role;
+  if (effectiveRole === 'user' && Array.isArray(permissions)) {
+    setPermissionsForUser(
+      id,
+      permissions.map((p: any) => ({
+        server_id: parseInt(p.server_id, 10),
+        can_view: !!p.can_view,
+        can_control: !!p.can_control,
+        can_rcon: !!p.can_rcon,
+        can_configure: !!p.can_configure,
+      }))
+    );
+  }
   res.json({ user: publicUser(getUserById(id)!) });
 });
 
@@ -100,6 +123,7 @@ router.put('/:id/permissions', (req, res) => {
       can_view: !!p.can_view,
       can_control: !!p.can_control,
       can_rcon: !!p.can_rcon,
+      can_configure: !!p.can_configure,
     }))
   );
   res.json({ permissions: listPermissionsForUser(id) });

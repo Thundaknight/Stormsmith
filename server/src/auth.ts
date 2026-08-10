@@ -65,14 +65,15 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-export type PermissionKind = 'view' | 'control' | 'rcon';
+export type PermissionKind = 'view' | 'control' | 'rcon' | 'configure';
 
 export function userCan(user: AuthTokenPayload, serverId: number, kind: PermissionKind): boolean {
   if (user.role === 'admin') return true;
   const perm = getPermission(user.userId, serverId);
   if (!perm) return false;
-  if (kind === 'view') return !!(perm.can_view || perm.can_control || perm.can_rcon);
+  if (kind === 'view') return !!(perm.can_view || perm.can_control || perm.can_rcon || perm.can_configure);
   if (kind === 'control') return !!perm.can_control;
+  if (kind === 'configure') return !!perm.can_configure;
   return !!perm.can_rcon;
 }
 
