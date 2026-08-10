@@ -103,6 +103,7 @@ export interface DiscordRolePerm {
   can_restart: boolean | number;
   can_rcon: boolean | number;
   can_broadcast: boolean | number;
+  can_create_wow_accounts: boolean | number;
 }
 
 export interface CustomField {

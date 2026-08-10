@@ -1,7 +1,8 @@
 import {
   ActionRowBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, ChannelType,
   ChatInputCommandInteraction, Client, EmbedBuilder, GatewayIntentBits, GuildMember,
-  Interaction, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, TextChannel,
+  Interaction, ModalBuilder, ModalSubmitInteraction, PermissionFlagsBits, REST, Routes,
+  SlashCommandBuilder, TextChannel, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { resolveDisplayAddress } from '../address';
 import {
@@ -15,7 +16,7 @@ import { sendBroadcast, sendRconCommand } from '../rcon';
 import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
 import type { ContainerState, DiscordConfig, DiscordRolePerm, GameServer, ServerAction, ServerStatus } from '../types';
 
-type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast';
+type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast' | 'wowCreate';
 
 const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   commands: 'can_use_commands',
@@ -24,7 +25,14 @@ const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   restart: 'can_restart',
   rcon: 'can_rcon',
   broadcast: 'can_broadcast',
+  wowCreate: 'can_create_wow_accounts',
 };
+
+/** Strips a Discord display name down to a safe AzerothCore account name. */
+function sanitizeWowUsername(input: string): string {
+  const cleaned = input.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+  return cleaned || 'player';
+}
 
 const STATE_EMOJI: Record<ContainerState, string> = {
   running: '🟢', paused: '🟡', restarting: '🔄', exited: '🔴',
@@ -191,6 +199,14 @@ class DiscordBot {
         .setDescription('Send an in-game message to a server')
         .addStringOption(serverOption)
         .addStringOption((o) => o.setName('message').setDescription('Message to send').setRequired(true)),
+      new SlashCommandBuilder()
+        .setName('wowcreate')
+        .setDescription('DM a Discord user to set up an AzerothCore WoW account')
+        .addUserOption((o) => o.setName('user').setDescription('Discord user to create the account for').setRequired(true))
+        .addStringOption(serverOption)
+        .addStringOption((o) =>
+          o.setName('username').setDescription('WoW account username (default: their Discord name)').setRequired(false)
+        ),
     ].map((c) => c.toJSON());
 
     const rest = new REST().setToken(cfg.bot_token);
@@ -394,8 +410,10 @@ class DiscordBot {
   private async handleInteraction(interaction: Interaction): Promise<void> {
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused().toLowerCase();
+      const azerothOnly = interaction.commandName === 'wowcreate';
       const servers = listServers()
         .filter((s) => s.name.toLowerCase().includes(focused))
+        .filter((s) => !azerothOnly || s.game === 'azerothcore')
         .slice(0, 25)
         .map((s) => ({ name: s.name, value: String(s.id) }));
       await interaction.respond(servers);
@@ -405,13 +423,22 @@ class DiscordBot {
       await this.handleButton(interaction);
       return;
     }
+    if (interaction.isModalSubmit()) {
+      await this.handleModalSubmit(interaction);
+      return;
+    }
     if (interaction.isChatInputCommand()) {
       await this.handleCommand(interaction);
     }
   }
 
   private async handleButton(interaction: ButtonInteraction): Promise<void> {
-    const [prefix, action, idStr] = interaction.customId.split(':');
+    const [prefix, ...rest] = interaction.customId.split(':');
+    if (prefix === 'wowcreate') {
+      await this.handleWowCreateButton(interaction, rest);
+      return;
+    }
+    const [action, idStr] = rest;
     if (prefix !== 'srv') return;
     const member = interaction.member as GuildMember | null;
 
@@ -462,6 +489,74 @@ class DiscordBot {
       await interaction.editReply(`✅ **${server.name}**: ${serverAction} issued.`);
     } catch (err: any) {
       await interaction.editReply(`❌ Failed to ${serverAction} **${server.name}**: ${err?.message || err}`);
+    }
+  }
+
+  /** "Set Password" button on the /wowcreate DM — only the invited user may click it. */
+  private async handleWowCreateButton(interaction: ButtonInteraction, parts: string[]): Promise<void> {
+    const [serverIdStr, targetUserId, requesterUserId, username] = parts;
+    if (interaction.user.id !== targetUserId) {
+      await interaction.reply({ content: '⛔ This button is not for you.', ephemeral: true });
+      return;
+    }
+    const modal = new ModalBuilder()
+      .setCustomId(`wowcreatepw:${serverIdStr}:${targetUserId}:${requesterUserId}:${username}`)
+      .setTitle('Set your WoW account password')
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('password')
+            .setLabel('Password')
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(6)
+            .setMaxLength(32)
+            .setRequired(true)
+        ),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('confirm')
+            .setLabel('Confirm password')
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(6)
+            .setMaxLength(32)
+            .setRequired(true)
+        )
+      );
+    await interaction.showModal(modal);
+  }
+
+  /** Password modal submitted from the /wowcreate DM — creates the AzerothCore account over SOAP. */
+  private async handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+    const [prefix, serverIdStr, targetUserId, requesterUserId, username] = interaction.customId.split(':');
+    if (prefix !== 'wowcreatepw') return;
+    if (interaction.user.id !== targetUserId) {
+      await interaction.reply({ content: '⛔ This form is not for you.', ephemeral: true });
+      return;
+    }
+    const password = interaction.fields.getTextInputValue('password');
+    const confirm = interaction.fields.getTextInputValue('confirm');
+    if (password !== confirm) {
+      await interaction.reply({ content: '⛔ Passwords did not match — ask for a new setup link and try again.', ephemeral: true });
+      return;
+    }
+    const server = getServerById(parseInt(serverIdStr, 10));
+    if (!server || server.game !== 'azerothcore') {
+      await interaction.reply({ content: '⛔ That server is no longer available.', ephemeral: true });
+      return;
+    }
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const response = await sendRconCommand(server, `.account create ${username} ${password}`);
+      const text = response.trim() || '(no response)';
+      await interaction.editReply(`✅ **${server.name}**\n\`\`\`\n${text.slice(0, 1800)}\n\`\`\``);
+      if (requesterUserId !== targetUserId) {
+        const requester = await interaction.client.users.fetch(requesterUserId).catch(() => null);
+        await requester?.send(
+          `✅ <@${targetUserId}> finished setting up WoW account **${username}** on **${server.name}**.`
+        ).catch(() => {});
+      }
+    } catch (err: any) {
+      await interaction.editReply(`❌ Account creation failed: ${err?.message || err}`);
     }
   }
 
@@ -548,6 +643,41 @@ class DiscordBot {
         await interaction.editReply(`📢 Sent to **${server.name}**: ${message}`);
       } catch (err: any) {
         await interaction.editReply(`❌ Broadcast failed: ${err?.message || err}`);
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'wowcreate') {
+      if (!this.memberCan(member, 'wowCreate')) {
+        await interaction.reply({ content: '⛔ You do not have permission to create WoW accounts.', ephemeral: true });
+        return;
+      }
+      if (server.game !== 'azerothcore') {
+        await interaction.reply({ content: '⛔ That server is not an AzerothCore server.', ephemeral: true });
+        return;
+      }
+      const targetUser = interaction.options.getUser('user', true);
+      if (targetUser.bot) {
+        await interaction.reply({ content: '⛔ Cannot create an account for a bot user.', ephemeral: true });
+        return;
+      }
+      const usernameOption = interaction.options.getString('username');
+      const username = sanitizeWowUsername(usernameOption || targetUser.username);
+      const customId = `wowcreate:${server.id}:${targetUser.id}:${interaction.user.id}:${username}`;
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(customId).setLabel('Set Password').setStyle(ButtonStyle.Primary)
+      );
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        await targetUser.send({
+          content:
+            `👋 You've been invited to set up a WoW account (**${username}**) on **${server.name}**.\n` +
+            `Click below and enter a password to finish setup.`,
+          components: [row],
+        });
+        await interaction.editReply(`📨 Sent ${targetUser} a DM to set up account **${username}** on **${server.name}**.`);
+      } catch {
+        await interaction.editReply(`❌ Couldn't DM ${targetUser} — they may have DMs disabled for this server.`);
       }
     }
   }
