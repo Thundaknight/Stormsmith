@@ -9,7 +9,7 @@ A self-hosted manager for game servers running as Docker containers on Unraid (o
 
 - **Import game servers** — pick any Docker container on the host (Palworld, Satisfactory, Minecraft, …) and manage it as a game server with live status monitoring.
 - **Web interface** — start, stop, restart, pause and resume servers; live status via WebSocket; CPU/memory stats.
-- **User management** — admin and user roles, with per-server permissions (view / control / RCON) for each user.
+- **User management** — the only manually-created account is the initial admin from first-run setup. Everyone else signs up with Discord OAuth and lands in a pending queue until an admin approves them; admins can also link Discord to their own account as a second sign-in option. Approved users get per-server permissions (view / control / RCON) set by an admin.
 - **RCON** — built-in console for Source-RCON games (Palworld, Minecraft, Rust, ARK, 7DtD, …) plus one-click in-game broadcast messages with per-game command templates. Palworld servers get a full command palette (kick/ban, save, graceful shutdown, …).
 - **Palworld settings editor** — reads `PalWorldSettings.ini` directly from inside the game container (auto-detecting its location, no extra mounts), and lets you view and edit every setting with sliders, toggles, and dropdowns, then writes it back.
 - **AzerothCore (WoW) support** — GM commands run over the worldserver's SOAP interface (kick, mute, ban, announce, teleport, server shutdown/restart, …) from the web console or Discord's `/rcon`. A dedicated Player Accounts panel creates and resets login accounts (`.account create` / `.account set password`, with an optional GM level). An optional read-only database connection reports the real online player count and names with mod-playerbots bots filtered out, instead of the bot-inflated count the game itself reports.
@@ -71,6 +71,18 @@ To build the image yourself instead of pulling from Docker Hub: `docker build -t
    - which **roles** may control servers and use RCON (Discord administrators always can),
    - which **channels** slash commands may be used in,
    - which **commands** are enabled, and an optional **RCON allowlist** (command prefixes) to restrict what `/rcon` may run.
+
+## Setting up Discord sign-in (web login)
+
+This is separate from the bot above — it lets people log into the Stormsmith *website* with their Discord account, and can use the same Discord application.
+
+1. In that application's **OAuth2** page (left sidebar), copy the **Client ID** and **Client Secret**.
+2. Add a **Redirect** on that same page matching exactly what you'll enter in Stormsmith — e.g. `http://<unraid-ip>:8080/api/auth/discord/callback`.
+3. In the web UI → **Discord Bot** → **Web Login (Discord OAuth)**: paste the Client ID, Client Secret, and Redirect URI (there's a button to fill in the current page's origin for convenience), enable it, and save.
+4. Leave **"Only allow sign-in from members of the guild configured above"** on (the default) to restrict sign-ups to your Discord server's members — this needs the bot connected and a guild ID set above; turn it off to allow any Discord account to sign up.
+5. Share the login page with your community. When someone signs in with Discord for the first time, an account is created with status **pending** and no permissions; approve it from the **Users** page to let them in, then grant per-server permissions.
+
+The initial admin (from first-run setup) can also link a Discord account to their existing login from the new **Account** page, as a second way to sign in alongside their password.
 
 ## RCON notes
 

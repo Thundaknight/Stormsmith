@@ -11,8 +11,11 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
+      password_hash TEXT NOT NULL DEFAULT '',
       role TEXT NOT NULL DEFAULT 'user',
+      status TEXT NOT NULL DEFAULT 'active',
+      discord_id TEXT NOT NULL DEFAULT '',
+      discord_username TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -95,13 +98,23 @@ export function initDb(): void {
       allow_restart INTEGER NOT NULL DEFAULT 1,
       allow_rcon INTEGER NOT NULL DEFAULT 0,
       allow_broadcast INTEGER NOT NULL DEFAULT 1,
-      rcon_command_allowlist TEXT NOT NULL DEFAULT '[]'
+      rcon_command_allowlist TEXT NOT NULL DEFAULT '[]',
+      oauth_enabled INTEGER NOT NULL DEFAULT 0,
+      oauth_client_id TEXT NOT NULL DEFAULT '',
+      oauth_client_secret TEXT NOT NULL DEFAULT '',
+      oauth_redirect_uri TEXT NOT NULL DEFAULT '',
+      oauth_restrict_to_guild INTEGER NOT NULL DEFAULT 1
     );
 
     INSERT OR IGNORE INTO discord_config (id) VALUES (1);
   `);
 
   // Migrations for databases created before these columns existed
+  const addColumnTo = (table: string, name: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  };
+
   const serverCols = db.prepare('PRAGMA table_info(servers)').all() as Array<{ name: string }>;
   const addColumn = (name: string, ddl: string) => {
     if (!serverCols.some((c) => c.name === name)) db.exec(`ALTER TABLE servers ADD COLUMN ${ddl}`);
@@ -125,6 +138,15 @@ export function initDb(): void {
   addColumn('bot_account_prefix', "bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot'");
   addColumn('address_mode', "address_mode TEXT NOT NULL DEFAULT 'auto'");
   addColumn('custom_address', "custom_address TEXT NOT NULL DEFAULT ''");
+
+  addColumnTo('users', 'status', "status TEXT NOT NULL DEFAULT 'active'");
+  addColumnTo('users', 'discord_id', "discord_id TEXT NOT NULL DEFAULT ''");
+  addColumnTo('users', 'discord_username', "discord_username TEXT NOT NULL DEFAULT ''");
+  addColumnTo('discord_config', 'oauth_enabled', 'oauth_enabled INTEGER NOT NULL DEFAULT 0');
+  addColumnTo('discord_config', 'oauth_client_id', "oauth_client_id TEXT NOT NULL DEFAULT ''");
+  addColumnTo('discord_config', 'oauth_client_secret', "oauth_client_secret TEXT NOT NULL DEFAULT ''");
+  addColumnTo('discord_config', 'oauth_redirect_uri', "oauth_redirect_uri TEXT NOT NULL DEFAULT ''");
+  addColumnTo('discord_config', 'oauth_restrict_to_guild', 'oauth_restrict_to_guild INTEGER NOT NULL DEFAULT 1');
 
   // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
   db.prepare(
@@ -191,6 +213,11 @@ export function getUserById(id: number): User | undefined {
   return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | undefined;
 }
 
+export function getUserByDiscordId(discordId: string): User | undefined {
+  if (!discordId) return undefined;
+  return db.prepare('SELECT * FROM users WHERE discord_id = ?').get(discordId) as User | undefined;
+}
+
 export function listUsers(): User[] {
   return db.prepare('SELECT * FROM users ORDER BY username').all() as User[];
 }
@@ -200,6 +227,41 @@ export function createUser(username: string, passwordHash: string, role: string)
     .prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
     .run(username, passwordHash, role);
   return getUserById(Number(info.lastInsertRowid))!;
+}
+
+/** Signs up a new pending user from a verified Discord identity. Disambiguates username collisions. */
+export function createOAuthUser(discordId: string, discordUsername: string): User {
+  const base = discordUsername.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 28) || 'discord-user';
+  let username = base;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const info = db
+        .prepare(
+          `INSERT INTO users (username, password_hash, role, status, discord_id, discord_username)
+           VALUES (?, '', 'user', 'pending', ?, ?)`
+        )
+        .run(username, discordId, discordUsername);
+      return getUserById(Number(info.lastInsertRowid))!;
+    } catch (err: any) {
+      if (!String(err?.message).includes('UNIQUE')) throw err;
+      username = `${base}-${discordId.slice(-4)}${attempt > 0 ? attempt : ''}`;
+    }
+  }
+  throw new Error('Could not allocate a unique username for this Discord account');
+}
+
+export function approveUser(id: number): void {
+  db.prepare("UPDATE users SET status = 'active' WHERE id = ?").run(id);
+}
+
+export function linkDiscordAccount(userId: number, discordId: string, discordUsername: string): void {
+  db.prepare('UPDATE users SET discord_id = ?, discord_username = ? WHERE id = ?').run(
+    discordId, discordUsername, userId
+  );
+}
+
+export function unlinkDiscordAccount(userId: number): void {
+  db.prepare("UPDATE users SET discord_id = '', discord_username = '' WHERE id = ?").run(userId);
 }
 
 export function updateUser(id: number, fields: { password_hash?: string; role?: string }): void {
@@ -362,6 +424,7 @@ export function updateDiscordConfig(fields: Partial<DiscordConfig>): void {
     'control_role_ids', 'rcon_role_ids', 'command_channel_ids',
     'allow_start', 'allow_stop', 'allow_restart', 'allow_rcon', 'allow_broadcast',
     'rcon_command_allowlist',
+    'oauth_enabled', 'oauth_client_id', 'oauth_client_secret', 'oauth_redirect_uri', 'oauth_restrict_to_guild',
   ];
   const keys = allowed.filter((k) => fields[k] !== undefined);
   if (keys.length === 0) return;

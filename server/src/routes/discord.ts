@@ -13,6 +13,8 @@ function maskedConfig() {
     ...cfg,
     bot_token: cfg.bot_token ? '••••••••' : '',
     bot_token_set: !!cfg.bot_token,
+    oauth_client_secret: cfg.oauth_client_secret ? '••••••••' : '',
+    oauth_client_secret_set: !!cfg.oauth_client_secret,
     bot_running: discordBot.isRunning(),
     bot_error: discordBot.lastError,
   };
@@ -41,6 +43,14 @@ router.put('/config', asyncRoute(async (req, res) => {
     allow_rcon: b.allow_rcon !== undefined ? (b.allow_rcon ? 1 : 0) : undefined,
     allow_broadcast: b.allow_broadcast !== undefined ? (b.allow_broadcast ? 1 : 0) : undefined,
     rcon_command_allowlist: b.rcon_command_allowlist !== undefined ? jsonArray(b.rcon_command_allowlist) : undefined,
+    oauth_enabled: b.oauth_enabled !== undefined ? (b.oauth_enabled ? 1 : 0) : undefined,
+    oauth_client_id: typeof b.oauth_client_id === 'string' ? b.oauth_client_id.trim() : undefined,
+    oauth_client_secret:
+      typeof b.oauth_client_secret === 'string' && !b.oauth_client_secret.includes('•')
+        ? b.oauth_client_secret
+        : undefined,
+    oauth_redirect_uri: typeof b.oauth_redirect_uri === 'string' ? b.oauth_redirect_uri.trim() : undefined,
+    oauth_restrict_to_guild: b.oauth_restrict_to_guild !== undefined ? (b.oauth_restrict_to_guild ? 1 : 0) : undefined,
   });
   // If the status channel changed, the old status message id no longer applies
   if (typeof b.status_channel_id === 'string' && b.status_channel_id.trim() !== previousChannelId) {

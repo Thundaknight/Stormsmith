@@ -1,10 +1,22 @@
 export type Role = 'admin' | 'user';
+export type UserStatus = 'active' | 'pending';
 
 export interface User {
   id: number;
   username: string;
   role: Role;
+  // Present on the admin Users list; the minimal auth-response shape omits these.
+  status?: UserStatus;
+  discord_username?: string;
+  has_password?: boolean;
   created_at?: string;
+}
+
+export interface Account {
+  username: string;
+  role: Role;
+  discord_username: string;
+  has_password: boolean;
 }
 
 export type ContainerState =
@@ -129,6 +141,12 @@ export interface DiscordConfigView {
   allow_rcon: number;
   allow_broadcast: number;
   rcon_command_allowlist: string;
+  oauth_enabled: number;
+  oauth_client_id: string;
+  oauth_client_secret: string;
+  oauth_client_secret_set: boolean;
+  oauth_redirect_uri: string;
+  oauth_restrict_to_guild: number;
 }
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause';

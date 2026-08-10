@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import type { GameServer, Permission, User } from '../types';
@@ -10,10 +9,6 @@ export default function Users() {
   const [servers, setServers] = useState<GameServer[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-
-  // New-user form
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
-  const [creating, setCreating] = useState(false);
 
   // Permission editor
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -30,19 +25,26 @@ export default function Users() {
 
   useEffect(load, [load]);
 
-  const create = async (e: FormEvent) => {
-    e.preventDefault();
-    setCreating(true);
-    setError('');
+  const pending = users.filter((u) => u.status === 'pending');
+  const active = users.filter((u) => u.status !== 'pending');
+
+  const approve = async (u: User) => {
     try {
-      await api.createUser(newUser.username, newUser.password, newUser.role);
-      setNewUser({ username: '', password: '', role: 'user' });
-      setNotice('User created');
+      await api.approveUser(u.id);
+      setNotice(`${u.username} approved`);
       load();
     } catch (err: any) {
       setError(err.message);
-    } finally {
-      setCreating(false);
+    }
+  };
+
+  const reject = async (u: User) => {
+    if (!window.confirm(`Reject and remove the pending sign-up for "${u.username}"?`)) return;
+    try {
+      await api.deleteUser(u.id);
+      load();
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -123,41 +125,48 @@ export default function Users() {
       {notice && <div className="alert alert-ok" onAnimationEnd={() => setNotice('')}>{notice}</div>}
 
       <div className="card">
-        <h2>Add user</h2>
-        <form className="inline-form" onSubmit={create}>
-          <input
-            placeholder="Username"
-            value={newUser.username}
-            onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-            required
-          />
-          <input
-            placeholder="Password (min 8 chars)"
-            type="password"
-            value={newUser.password}
-            onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-            minLength={8}
-            required
-          />
-          <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button className="btn btn-primary" disabled={creating}>Add</button>
-        </form>
+        <h2>How people get an account</h2>
+        <p className="muted">
+          The only manually-created account is the initial admin. Everyone else signs up with Discord and lands
+          below awaiting your approval — set up Discord sign-in on the Discord Bot page if you haven't already.
+        </p>
       </div>
+
+      {pending.length > 0 && (
+        <div className="card">
+          <h2>Pending approval ({pending.length})</h2>
+          <table className="table">
+            <thead>
+              <tr><th>Name</th><th>Discord</th><th></th></tr>
+            </thead>
+            <tbody>
+              {pending.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.username}</td>
+                  <td className="muted">{u.discord_username || '—'}</td>
+                  <td className="table-actions">
+                    <button className="btn btn-small btn-primary" onClick={() => approve(u)}>Approve</button>
+                    <button className="btn btn-small btn-danger-outline" onClick={() => reject(u)}>Reject</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="card">
         <h2>All users</h2>
         <table className="table">
           <thead>
-            <tr><th>Username</th><th>Role</th><th></th></tr>
+            <tr><th>Username</th><th>Role</th><th>Discord</th><th></th></tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {active.map((u) => (
               <tr key={u.id}>
                 <td>{u.username}{u.id === me?.id && <span className="muted"> (you)</span>}</td>
                 <td><span className={`role-badge role-${u.role}`}>{u.role}</span></td>
+                <td className="muted">{u.discord_username || '—'}</td>
                 <td className="table-actions">
                   {u.role === 'user' && (
                     <button className="btn btn-small" onClick={() => openPermissions(u)}>Permissions</button>

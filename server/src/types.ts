@@ -1,10 +1,15 @@
 export type Role = 'admin' | 'user';
 
+export type UserStatus = 'active' | 'pending';
+
 export interface User {
   id: number;
   username: string;
   password_hash: string;
   role: Role;
+  status: UserStatus;
+  discord_id: string;
+  discord_username: string;
   created_at: string;
 }
 
@@ -115,6 +120,11 @@ export interface DiscordConfig {
   allow_rcon: number;
   allow_broadcast: number;
   rcon_command_allowlist: string; // JSON string[]; empty = all commands
+  oauth_enabled: number;
+  oauth_client_id: string;
+  oauth_client_secret: string;
+  oauth_redirect_uri: string;
+  oauth_restrict_to_guild: number;
 }
 
 export interface AuthTokenPayload {

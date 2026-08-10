@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth';
 import Layout from './components/Layout';
+import Account from './pages/Account';
 import Dashboard from './pages/Dashboard';
 import DiscordSettings from './pages/DiscordSettings';
 import ImportServer from './pages/ImportServer';
@@ -22,6 +23,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/servers/:id" element={<ServerDetail />} />
+        <Route path="/account" element={<Account />} />
         {user.role === 'admin' && (
           <>
             <Route path="/import" element={<ImportServer />} />

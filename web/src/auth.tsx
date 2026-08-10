@@ -8,6 +8,8 @@ interface AuthState {
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   setup: (username: string, password: string) => Promise<void>;
+  /** Finishes a Discord OAuth login: a token was already issued by the backend redirect. */
+  loginWithToken: (token: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -17,17 +19,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadFromToken = useCallback(async () => {
+    const r = await api.me();
+    setUser({ id: r.user.userId, username: r.user.username, role: r.user.role as User['role'] });
+  }, []);
+
   useEffect(() => {
     if (!getToken()) {
       setLoading(false);
       return;
     }
-    api
-      .me()
-      .then((r) => setUser({ id: r.user.userId, username: r.user.username, role: r.user.role as User['role'] }))
+    loadFromToken()
       .catch(() => clearToken())
       .finally(() => setLoading(false));
-  }, []);
+  }, [loadFromToken]);
 
   const login = useCallback(async (username: string, password: string) => {
     const r = await api.login(username, password);
@@ -41,12 +46,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(r.user);
   }, []);
 
+  const loginWithToken = useCallback(async (token: string) => {
+    setToken(token);
+    await loadFromToken();
+  }, [loadFromToken]);
+
   const logout = useCallback(() => {
     clearToken();
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ user, loading, login, setup, logout }), [user, loading, login, setup, logout]);
+  const value = useMemo(
+    () => ({ user, loading, login, setup, loginWithToken, logout }),
+    [user, loading, login, setup, loginWithToken, logout]
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

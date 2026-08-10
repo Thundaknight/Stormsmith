@@ -83,6 +83,11 @@ export default function DiscordSettings() {
   const [commandChannels, setCommandChannels] = useState<string[]>([]);
   const [allow, setAllow] = useState({ start: true, stop: true, restart: true, rcon: false, broadcast: true });
   const [rconAllowlist, setRconAllowlist] = useState('');
+  const [oauthEnabled, setOauthEnabled] = useState(false);
+  const [oauthClientId, setOauthClientId] = useState('');
+  const [oauthClientSecret, setOauthClientSecret] = useState('');
+  const [oauthRedirectUri, setOauthRedirectUri] = useState('');
+  const [oauthRestrictToGuild, setOauthRestrictToGuild] = useState(true);
 
   const applyConfig = useCallback((c: DiscordConfigView) => {
     setCfg(c);
@@ -99,6 +104,11 @@ export default function DiscordSettings() {
       broadcast: !!c.allow_broadcast,
     });
     setRconAllowlist(parseIds(c.rcon_command_allowlist).join('\n'));
+    setOauthEnabled(!!c.oauth_enabled);
+    setOauthClientId(c.oauth_client_id);
+    setOauthClientSecret(c.oauth_client_secret);
+    setOauthRedirectUri(c.oauth_redirect_uri);
+    setOauthRestrictToGuild(!!c.oauth_restrict_to_guild);
   }, []);
 
   const loadMeta = useCallback(() => {
@@ -165,6 +175,11 @@ export default function DiscordSettings() {
         allow_rcon: allow.rcon,
         allow_broadcast: allow.broadcast,
         rcon_command_allowlist: rconAllowlist.split('\n').map((s) => s.trim()).filter(Boolean),
+        oauth_enabled: oauthEnabled,
+        oauth_client_id: oauthClientId,
+        oauth_client_secret: oauthClientSecret,
+        oauth_redirect_uri: oauthRedirectUri,
+        oauth_restrict_to_guild: oauthRestrictToGuild,
       });
       applyConfig(r.config);
       setNotice(r.config.bot_running ? '✅ Saved — bot is connected.' : 'Saved.');
@@ -303,6 +318,58 @@ export default function DiscordSettings() {
             hint="Leave empty to allow slash commands in every channel."
             options={channels} selected={commandChannels} onChange={setCommandChannels}
           />
+        </div>
+
+        <div className="card">
+          <h2>Web Login (Discord OAuth)</h2>
+          <p className="hint">
+            Lets people sign into the Stormsmith web app with their Discord account instead of a manually-created
+            login. New sign-ups land on the Users page as pending until you approve them. The only account you
+            create manually is the initial admin.
+          </p>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={oauthEnabled} onChange={(e) => setOauthEnabled(e.target.checked)} />
+            Enable Discord sign-in
+          </label>
+          <div className="form-grid">
+            <label>
+              Client ID
+              <input value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} placeholder="From the same Discord application's OAuth2 page" />
+            </label>
+            <label>
+              Client secret
+              <input
+                type="password"
+                value={oauthClientSecret}
+                onChange={(e) => setOauthClientSecret(e.target.value)}
+                placeholder={cfg.oauth_client_secret_set ? 'Saved — enter a new secret to replace' : 'From the OAuth2 page'}
+              />
+            </label>
+            <label className="span-2">
+              Redirect URI
+              <input
+                className="mono"
+                value={oauthRedirectUri}
+                onChange={(e) => setOauthRedirectUri(e.target.value)}
+                placeholder="https://your-domain-or-ip:8080/api/auth/discord/callback"
+              />
+              <span className="hint">
+                Must exactly match a Redirect URI registered on the application's OAuth2 page in the Discord
+                Developer Portal.{' '}
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={() => setOauthRedirectUri(`${window.location.origin}/api/auth/discord/callback`)}
+                >
+                  Use {window.location.origin}
+                </button>
+              </span>
+            </label>
+          </div>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={oauthRestrictToGuild} onChange={(e) => setOauthRestrictToGuild(e.target.checked)} />
+            Only allow sign-in from members of the guild configured above
+          </label>
         </div>
 
         <div className="card">

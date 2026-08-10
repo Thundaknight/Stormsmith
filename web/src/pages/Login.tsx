@@ -4,16 +4,40 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 
 export default function Login() {
-  const { login, setup } = useAuth();
+  const { login, setup, loginWithToken } = useAuth();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const [discordEnabled, setDiscordEnabled] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.authStatus().then((r) => setNeedsSetup(r.needsSetup)).catch(() => setNeedsSetup(false));
+    api.authStatus()
+      .then((r) => {
+        setNeedsSetup(r.needsSetup);
+        setDiscordEnabled(r.discordOAuthEnabled);
+      })
+      .catch(() => setNeedsSetup(false));
+
+    // Discord OAuth redirects back here with one of these query params
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('discordToken');
+    const pending = params.get('discordPending');
+    const discordError = params.get('discordError');
+    if (token || pending || discordError) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    if (token) {
+      loginWithToken(token).catch((err) => setError(err.message));
+    } else if (pending) {
+      setNotice('Your Discord sign-up was received. An administrator needs to approve your account before you can sign in.');
+    } else if (discordError) {
+      setError(discordError);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async (e: FormEvent) => {
@@ -68,10 +92,26 @@ export default function Login() {
             <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
           </label>
         )}
+        {notice && <div className="alert alert-ok">{notice}</div>}
         {error && <div className="alert alert-error">{error}</div>}
         <button className="btn btn-primary" disabled={busy}>
           {busy ? 'Please wait…' : needsSetup ? 'Create admin account' : 'Sign in'}
         </button>
+        {discordEnabled && !needsSetup && (
+          <>
+            <div className="login-divider"><span>or</span></div>
+            <button
+              type="button"
+              className="btn btn-discord"
+              onClick={() => { window.location.href = '/api/auth/discord/login'; }}
+            >
+              Sign in with Discord
+            </button>
+            <p className="hint" style={{ textAlign: 'center' }}>
+              New here? Signing in with Discord creates an account pending administrator approval.
+            </p>
+          </>
+        )}
       </form>
     </div>
   );

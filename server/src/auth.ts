@@ -49,6 +49,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     res.status(401).json({ error: 'User no longer exists' });
     return;
   }
+  if (user.status !== 'active') {
+    res.status(403).json({ error: 'Your account is pending administrator approval' });
+    return;
+  }
   req.user = { userId: user.id, username: user.username, role: user.role };
   next();
 }

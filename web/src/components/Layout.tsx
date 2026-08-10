@@ -20,6 +20,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <NavLink to="/discord">Discord Bot</NavLink>
             </>
           )}
+          <NavLink to="/account">Account</NavLink>
         </nav>
         <div className="sidebar-footer">
           <div className="user-chip">

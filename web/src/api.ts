@@ -1,5 +1,6 @@
 import type {
-  ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission, ServerAction, User,
+  Account, ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission,
+  ServerAction, User,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -43,12 +44,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   // auth
-  authStatus: () => request<{ needsSetup: boolean }>('GET', '/api/auth/status'),
+  authStatus: () => request<{ needsSetup: boolean; discordOAuthEnabled: boolean }>('GET', '/api/auth/status'),
   setup: (username: string, password: string) =>
     request<{ token: string; user: User }>('POST', '/api/auth/setup', { username, password }),
   login: (username: string, password: string) =>
     request<{ token: string; user: User }>('POST', '/api/auth/login', { username, password }),
   me: () => request<{ user: { userId: number; username: string; role: string } }>('GET', '/api/auth/me'),
+  getAccount: () => request<{ account: Account }>('GET', '/api/auth/account'),
+  unlinkDiscord: () => request<{ ok: boolean }>('POST', '/api/auth/discord/unlink'),
 
   // servers
   listServers: () =>
@@ -106,8 +109,7 @@ export const api = {
 
   // users
   listUsers: () => request<{ users: User[] }>('GET', '/api/users'),
-  createUser: (username: string, password: string, role: string) =>
-    request<{ user: User }>('POST', '/api/users', { username, password, role }),
+  approveUser: (id: number) => request<{ user: User }>('POST', `/api/users/${id}/approve`),
   updateUser: (id: number, data: { password?: string; role?: string }) =>
     request<{ user: User }>('PUT', `/api/users/${id}`, data),
   deleteUser: (id: number) => request<{ ok: boolean }>('DELETE', `/api/users/${id}`),

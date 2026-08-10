@@ -127,6 +127,19 @@ class DiscordBot {
     await this.start();
   }
 
+  /** Whether the given Discord user is a member of the configured guild (used to gate web-login sign-ups). */
+  async isGuildMember(discordUserId: string): Promise<boolean> {
+    const cfg = this.cfg;
+    if (!this.client?.isReady() || !cfg?.guild_id) return false;
+    try {
+      const guild = await this.client.guilds.fetch(cfg.guild_id);
+      await guild.members.fetch(discordUserId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Guild roles and text channels, for populating pickers in the web UI. */
   async getGuildMeta(): Promise<{ roles: Array<{ id: string; name: string }>; channels: Array<{ id: string; name: string }> }> {
     const cfg = this.cfg;

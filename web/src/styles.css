@@ -274,6 +274,10 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent);
 .login-card { width: 380px; display: flex; flex-direction: column; padding: 28px; }
 .login-brand { justify-content: center; font-size: 1.2rem; }
 .login-card .btn { margin-top: 6px; }
+.login-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; color: var(--text-muted); font-size: 0.8rem; }
+.login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.btn-discord { background: #5865f2; border-color: #5865f2; color: #fff; }
+.btn-discord:hover:not(:disabled) { background: #4752c4; }
 
 /* Alerts */
 .alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 0.9rem; }
