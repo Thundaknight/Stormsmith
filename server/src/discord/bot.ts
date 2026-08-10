@@ -4,15 +4,15 @@ import {
   Interaction, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, TextChannel,
 } from 'discord.js';
 import {
-  deleteStatusMessageId, getDiscordConfig, getServerById, getStatusMessageId,
-  listDiscordRolePerms, listServers, listStatusMessages, setStatusMessageId,
+  deleteStatusMessage, getDiscordConfig, getServerById, getStatusMessage,
+  listDiscordRolePerms, listServers, listStatusMessages, setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
 import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
-import type { ContainerState, DiscordConfig, DiscordRolePerm, ServerAction, ServerStatus } from '../types';
+import type { ContainerState, DiscordConfig, DiscordRolePerm, GameServer, ServerAction, ServerStatus } from '../types';
 
 type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast';
 
@@ -200,7 +200,30 @@ class DiscordBot {
     created: 0x99aab5, dead: 0xed4245, removing: 0x99aab5, not_found: 0x99aab5,
   };
 
-  /** One embed per server, so each shows as its own card instead of sharing a single embed. */
+  /** Builds a single server's status embed. */
+  private buildServerEmbed(s: ServerStatus): EmbedBuilder {
+    const publicIp = getPublicIp();
+    const lines = [
+      `**Game:** ${GAME_LABELS[s.game] || s.game}`,
+      `**Uptime:** ${s.state === 'running' ? formatUptime(s.startedAt) : '—'}`,
+    ];
+    const nextRestart = getNextScheduledRestart(s.serverId);
+    if (nextRestart) lines.push(`**Next restart:** <t:${Math.floor(nextRestart / 1000)}:R>`);
+    if (publicIp && s.gamePort) lines.push(`**Server IP:** \`${publicIp}:${s.gamePort}\``);
+    lines.push(`**Players:** ${s.playerCount != null ? s.playerCount : '—'}`);
+    if (s.players && s.players.length > 0) {
+      const shown = s.players.slice(0, MAX_EMBED_PLAYERS).join(', ');
+      const extra = s.players.length > MAX_EMBED_PLAYERS ? ` +${s.players.length - MAX_EMBED_PLAYERS} more` : '';
+      lines.push(shown + extra);
+    }
+    return new EmbedBuilder()
+      .setTitle(`${STATE_EMOJI[s.state] || '❓'} ${s.name}`)
+      .setColor(DiscordBot.STATE_COLOR[s.state] ?? 0x99aab5)
+      .setDescription(lines.join('\n').slice(0, 4096))
+      .setTimestamp(new Date());
+  }
+
+  /** One embed per server (e.g. for the ephemeral /servers reply); Discord allows at most 10 per message. */
   private buildStatusEmbeds(statuses: ServerStatus[]): EmbedBuilder[] {
     if (statuses.length === 0) {
       return [
@@ -210,112 +233,104 @@ class DiscordBot {
           .setDescription('No servers have been imported yet.'),
       ];
     }
-
-    const publicIp = getPublicIp();
-    // Discord allows at most 10 embeds per message
-    return statuses.slice(0, 10).map((s) => {
-      const lines = [
-        `**Game:** ${GAME_LABELS[s.game] || s.game}`,
-        `**Uptime:** ${s.state === 'running' ? formatUptime(s.startedAt) : '—'}`,
-      ];
-      const nextRestart = getNextScheduledRestart(s.serverId);
-      if (nextRestart) lines.push(`**Next restart:** <t:${Math.floor(nextRestart / 1000)}:R>`);
-      if (publicIp && s.gamePort) lines.push(`**Server IP:** \`${publicIp}:${s.gamePort}\``);
-      lines.push(`**Players:** ${s.playerCount != null ? s.playerCount : '—'}`);
-      if (s.players && s.players.length > 0) {
-        const shown = s.players.slice(0, MAX_EMBED_PLAYERS).join(', ');
-        const extra = s.players.length > MAX_EMBED_PLAYERS ? ` +${s.players.length - MAX_EMBED_PLAYERS} more` : '';
-        lines.push(shown + extra);
-      }
-      return new EmbedBuilder()
-        .setTitle(`${STATE_EMOJI[s.state] || '❓'} ${s.name}`)
-        .setColor(DiscordBot.STATE_COLOR[s.state] ?? 0x99aab5)
-        .setDescription(lines.join('\n').slice(0, 4096))
-        .setTimestamp(new Date());
-    });
+    return statuses.slice(0, 10).map((s) => this.buildServerEmbed(s));
   }
 
-  private buildButtons(statuses: ServerStatus[]): ActionRowBuilder<ButtonBuilder>[] {
+  /** Builds a single server's control-button row, or null if no buttons apply. */
+  private buildServerButtons(s: ServerStatus): ActionRowBuilder<ButtonBuilder> | null {
     const cfg = this.cfg!;
-    // Discord allows at most 5 action rows per message: one row per server, max 5
-    return statuses.slice(0, 5).map((s) => {
-      const row = new ActionRowBuilder<ButtonBuilder>();
-      const running = s.state === 'running' || s.state === 'paused' || s.state === 'restarting';
-      if (cfg.allow_start) {
-        row.addComponents(
-          new ButtonBuilder().setCustomId(`srv:start:${s.serverId}`).setLabel(`▶ ${s.name}`)
-            .setStyle(ButtonStyle.Success).setDisabled(running)
-        );
-      }
-      if (cfg.allow_stop) {
-        row.addComponents(
-          new ButtonBuilder().setCustomId(`srv:stop:${s.serverId}`).setLabel(`⏹ ${s.name}`)
-            .setStyle(ButtonStyle.Danger).setDisabled(!running)
-        );
-      }
-      if (cfg.allow_restart) {
-        row.addComponents(
-          new ButtonBuilder().setCustomId(`srv:restart:${s.serverId}`).setLabel(`🔄 ${s.name}`)
-            .setStyle(ButtonStyle.Secondary).setDisabled(!running)
-        );
-      }
-      if (cfg.allow_restart && getNextScheduledRestart(s.serverId) !== null) {
-        row.addComponents(
-          new ButtonBuilder().setCustomId(`srv:delay:${s.serverId}`).setLabel(`⏰ ${s.name}`)
-            .setStyle(ButtonStyle.Secondary)
-        );
-      }
-      return row;
-    }).filter((row) => row.components.length > 0);
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    const running = s.state === 'running' || s.state === 'paused' || s.state === 'restarting';
+    if (cfg.allow_start) {
+      row.addComponents(
+        new ButtonBuilder().setCustomId(`srv:start:${s.serverId}`).setLabel(`▶ ${s.name}`)
+          .setStyle(ButtonStyle.Success).setDisabled(running)
+      );
+    }
+    if (cfg.allow_stop) {
+      row.addComponents(
+        new ButtonBuilder().setCustomId(`srv:stop:${s.serverId}`).setLabel(`⏹ ${s.name}`)
+          .setStyle(ButtonStyle.Danger).setDisabled(!running)
+      );
+    }
+    if (cfg.allow_restart) {
+      row.addComponents(
+        new ButtonBuilder().setCustomId(`srv:restart:${s.serverId}`).setLabel(`🔄 ${s.name}`)
+          .setStyle(ButtonStyle.Secondary).setDisabled(!running)
+      );
+    }
+    if (cfg.allow_restart && getNextScheduledRestart(s.serverId) !== null) {
+      row.addComponents(
+        new ButtonBuilder().setCustomId(`srv:delay:${s.serverId}`).setLabel(`⏰ ${s.name}`)
+          .setStyle(ButtonStyle.Secondary)
+      );
+    }
+    return row.components.length > 0 ? row : null;
   }
 
   /**
-   * Maintains one status embed per channel. Each server chooses its channel
-   * (discord_channel_id, falling back to the default status channel) and can
-   * opt out of Discord display entirely (discord_show = 0).
+   * Maintains one message per server — its own embed immediately followed by
+   * its own button row — instead of bundling every server into one shared
+   * message. Each server chooses its channel (discord_channel_id, falling
+   * back to the default status channel) and can opt out of Discord display
+   * entirely (discord_show = 0). Messages are sent in a stable order (by
+   * server id) so they stack top-to-bottom predictably the first time
+   * they're created; Discord has no way to reorder existing messages.
    */
   private async updateStatusMessage(): Promise<void> {
     const cfg = this.cfg;
     if (!this.client?.isReady() || !cfg) return;
 
     const statusById = new Map(monitor.getAll().map((s) => [s.serverId, s]));
-    const groups = new Map<string, ServerStatus[]>();
-    for (const server of listServers()) {
-      if (!server.discord_show) continue;
-      const channelId = server.discord_channel_id || cfg.status_channel_id;
-      if (!channelId) continue;
-      const status = statusById.get(server.id);
-      if (!status) continue;
-      const group = groups.get(channelId);
-      if (group) group.push(status);
-      else groups.set(channelId, [status]);
-    }
+    interface Target { server: GameServer; channelId: string; status: ServerStatus }
+    const targets = (
+      listServers()
+        .filter((server) => server.discord_show)
+        .map((server) => ({
+          server,
+          channelId: server.discord_channel_id || cfg.status_channel_id,
+          status: statusById.get(server.id),
+        }))
+        .filter((t) => !!t.channelId && !!t.status) as Target[]
+    ).sort((a, b) => a.server.id - b.server.id);
 
-    for (const [channelId, statuses] of groups) {
+    const activeServerIds = new Set(targets.map((t) => t.server.id));
+
+    for (const { server, channelId, status } of targets) {
       const channel = await this.client.channels.fetch(channelId).catch(() => null);
       if (!channel || !(channel instanceof TextChannel)) continue;
-      const payload = { embeds: this.buildStatusEmbeds(statuses), components: this.buildButtons(statuses) };
-      const existingId = getStatusMessageId(channelId);
-      if (existingId) {
-        const existing = await channel.messages.fetch(existingId).catch(() => null);
-        if (existing) {
-          await existing.edit(payload).catch(() => {});
+
+      const buttons = this.buildServerButtons(status);
+      const payload = { embeds: [this.buildServerEmbed(status)], components: buttons ? [buttons] : [] };
+
+      const existing = getStatusMessage(server.id);
+      if (existing && existing.channel_id === channelId) {
+        const msg = await channel.messages.fetch(existing.message_id).catch(() => null);
+        if (msg) {
+          await msg.edit(payload).catch(() => {});
           continue;
+        }
+      } else if (existing) {
+        // The server's target channel changed — drop the old message from its old channel
+        const oldChannel = await this.client.channels.fetch(existing.channel_id).catch(() => null);
+        if (oldChannel instanceof TextChannel) {
+          const oldMsg = await oldChannel.messages.fetch(existing.message_id).catch(() => null);
+          await oldMsg?.delete().catch(() => {});
         }
       }
       const msg = await channel.send(payload).catch(() => null);
-      if (msg) setStatusMessageId(channelId, msg.id);
+      if (msg) setStatusMessage(server.id, channelId, msg.id);
     }
 
-    // Clean up embeds in channels that no longer display any server
+    // Clean up messages for servers that no longer show, or no longer exist
     for (const row of listStatusMessages()) {
-      if (groups.has(row.channel_id)) continue;
+      if (activeServerIds.has(row.server_id)) continue;
       const channel = await this.client.channels.fetch(row.channel_id).catch(() => null);
       if (channel instanceof TextChannel) {
         const msg = await channel.messages.fetch(row.message_id).catch(() => null);
         await msg?.delete().catch(() => {});
       }
-      deleteStatusMessageId(row.channel_id);
+      deleteStatusMessage(row.server_id);
     }
   }
 

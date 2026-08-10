@@ -56,7 +56,8 @@ export function initDb(): void {
     );
 
     CREATE TABLE IF NOT EXISTS discord_status_messages (
-      channel_id TEXT PRIMARY KEY,
+      server_id INTEGER PRIMARY KEY,
+      channel_id TEXT NOT NULL,
       message_id TEXT NOT NULL
     );
 
@@ -145,13 +146,22 @@ export function initDb(): void {
       const r = rcon.has(id) ? 1 : 0;
       ins.run(id, c, c, c, r, r);
     }
-    // Carry the single legacy status message over to the per-channel table
-    if (cfg.status_channel_id && cfg.status_message_id) {
-      db.prepare('INSERT OR IGNORE INTO discord_status_messages (channel_id, message_id) VALUES (?, ?)').run(
-        cfg.status_channel_id, cfg.status_message_id
-      );
-    }
     db.prepare('UPDATE discord_config SET roles_migrated = 1 WHERE id = 1').run();
+  }
+
+  // discord_status_messages moved from one row per channel to one row per server
+  // (each server now gets its own message so buttons sit directly under it). The
+  // old rows are just a message-ID cache, safe to discard and let the bot re-post.
+  const statusMsgCols = db.prepare('PRAGMA table_info(discord_status_messages)').all() as Array<{ name: string }>;
+  if (statusMsgCols.length > 0 && !statusMsgCols.some((c) => c.name === 'server_id')) {
+    db.exec('DROP TABLE discord_status_messages');
+    db.exec(`
+      CREATE TABLE discord_status_messages (
+        server_id INTEGER PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        message_id TEXT NOT NULL
+      )
+    `);
   }
 }
 
@@ -280,27 +290,28 @@ export function setDiscordRolePerms(rows: Array<Omit<DiscordRolePerm, never>>): 
   })();
 }
 
-// ---- Discord status messages (one embed per channel) ----
+// ---- Discord status messages (one message per server, so buttons sit under their own embed) ----
 
-export function listStatusMessages(): Array<{ channel_id: string; message_id: string }> {
-  return db.prepare('SELECT * FROM discord_status_messages').all() as Array<{ channel_id: string; message_id: string }>;
+export function listStatusMessages(): Array<{ server_id: number; channel_id: string; message_id: string }> {
+  return db.prepare('SELECT * FROM discord_status_messages').all() as Array<{
+    server_id: number; channel_id: string; message_id: string;
+  }>;
 }
 
-export function getStatusMessageId(channelId: string): string {
-  const row = db.prepare('SELECT message_id FROM discord_status_messages WHERE channel_id = ?').get(channelId) as
-    | { message_id: string }
+export function getStatusMessage(serverId: number): { channel_id: string; message_id: string } | undefined {
+  return db.prepare('SELECT channel_id, message_id FROM discord_status_messages WHERE server_id = ?').get(serverId) as
+    | { channel_id: string; message_id: string }
     | undefined;
-  return row?.message_id || '';
 }
 
-export function setStatusMessageId(channelId: string, messageId: string): void {
-  db.prepare('INSERT OR REPLACE INTO discord_status_messages (channel_id, message_id) VALUES (?, ?)').run(
-    channelId, messageId
-  );
+export function setStatusMessage(serverId: number, channelId: string, messageId: string): void {
+  db.prepare(
+    'INSERT OR REPLACE INTO discord_status_messages (server_id, channel_id, message_id) VALUES (?, ?, ?)'
+  ).run(serverId, channelId, messageId);
 }
 
-export function deleteStatusMessageId(channelId: string): void {
-  db.prepare('DELETE FROM discord_status_messages WHERE channel_id = ?').run(channelId);
+export function deleteStatusMessage(serverId: number): void {
+  db.prepare('DELETE FROM discord_status_messages WHERE server_id = ?').run(serverId);
 }
 
 // ---- Discord config ----
