@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
-import type { DiscordConfig, DiscordRolePerm, GameServer, ServerPermission, User } from './types';
+import type { CustomField, DiscordConfig, DiscordRolePerm, GameServer, ServerPermission, User } from './types';
 
 export const db = new Database(config.dbFile);
 db.pragma('journal_mode = WAL');
@@ -41,7 +41,17 @@ export function initDb(): void {
       db_characters_db TEXT NOT NULL DEFAULT 'acore_characters',
       db_auth_db TEXT NOT NULL DEFAULT 'acore_auth',
       bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot',
+      address_mode TEXT NOT NULL DEFAULT 'auto',
+      custom_address TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS server_custom_fields (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      type TEXT NOT NULL DEFAULT 'message',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS discord_role_perms (
@@ -113,6 +123,8 @@ export function initDb(): void {
   addColumn('db_characters_db', "db_characters_db TEXT NOT NULL DEFAULT 'acore_characters'");
   addColumn('db_auth_db', "db_auth_db TEXT NOT NULL DEFAULT 'acore_auth'");
   addColumn('bot_account_prefix', "bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot'");
+  addColumn('address_mode', "address_mode TEXT NOT NULL DEFAULT 'auto'");
+  addColumn('custom_address', "custom_address TEXT NOT NULL DEFAULT ''");
 
   // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
   db.prepare(
@@ -217,7 +229,7 @@ const SERVER_FIELDS = [
   'name', 'game', 'container_name', 'rcon_host', 'rcon_port', 'rcon_username', 'rcon_password',
   'broadcast_template', 'config_path', 'game_port', 'restart_enabled', 'restart_time', 'restart_mode',
   'restart_interval_hours', 'discord_show', 'discord_channel_id', 'db_host', 'db_port', 'db_user',
-  'db_password', 'db_characters_db', 'db_auth_db', 'bot_account_prefix',
+  'db_password', 'db_characters_db', 'db_auth_db', 'bot_account_prefix', 'address_mode', 'custom_address',
 ] as const;
 
 export function createServer(s: Omit<GameServer, 'id' | 'created_at'>): GameServer {
@@ -234,6 +246,30 @@ export function updateServer(id: number, s: Omit<GameServer, 'id' | 'created_at'
 
 export function deleteServer(id: number): void {
   db.prepare('DELETE FROM servers WHERE id = ?').run(id);
+}
+
+// ---- Custom embed fields ----
+
+export function listCustomFields(serverId: number): CustomField[] {
+  return db.prepare('SELECT * FROM server_custom_fields WHERE server_id = ? ORDER BY id').all(serverId) as CustomField[];
+}
+
+export function setCustomFields(
+  serverId: number,
+  fields: Array<{ type: string; title: string; content: string }>
+): void {
+  const del = db.prepare('DELETE FROM server_custom_fields WHERE server_id = ?');
+  const ins = db.prepare(
+    'INSERT INTO server_custom_fields (server_id, type, title, content) VALUES (?, ?, ?, ?)'
+  );
+  db.transaction(() => {
+    del.run(serverId);
+    for (const f of fields) {
+      const content = (f.content || '').trim();
+      if (!content) continue;
+      ins.run(serverId, f.type === 'link' ? 'link' : 'message', (f.title || '').trim(), content);
+    }
+  })();
 }
 
 // ---- Permissions ----

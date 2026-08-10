@@ -1,8 +1,9 @@
 import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
-  createServer, deleteServer, getServerById, listServers, updateServer,
+  createServer, deleteServer, getServerById, listCustomFields, listServers, setCustomFields, updateServer,
 } from '../db';
+import { resolveDisplayAddress } from '../address';
 import {
   execInContainer, getStats, listContainerDir, listContainers, performAction,
   putContainerFile, readContainerFile, writeContainerFile,
@@ -40,6 +41,10 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     discord_channel_id: s.discord_channel_id,
     rcon_configured: !!(s.rcon_host && s.rcon_port),
     db_configured: hasDbConfig(s),
+    address: resolveDisplayAddress(s, getPublicIp()),
+    address_mode: s.address_mode,
+    custom_address: s.custom_address,
+    custom_fields: listCustomFields(s.id),
     state: status?.state ?? 'not_found',
     statusText: status?.statusText ?? '',
     cpuPercent: status?.cpuPercent ?? null,
@@ -125,6 +130,8 @@ router.post('/', requireAdmin, (req, res) => {
       db_characters_db: req.body?.db_characters_db || 'acore_characters',
       db_auth_db: req.body?.db_auth_db || 'acore_auth',
       bot_account_prefix: req.body?.bot_account_prefix || 'rndbot',
+      address_mode: 'auto',
+      custom_address: '',
     });
     monitor.refresh().catch(() => {});
     discordBot.refreshStatus();
@@ -192,6 +199,11 @@ router.put('/:id', requireAdmin, (req, res) => {
     db_characters_db: b.db_characters_db ?? server.db_characters_db,
     db_auth_db: b.db_auth_db ?? server.db_auth_db,
     bot_account_prefix: b.bot_account_prefix ?? server.bot_account_prefix,
+    address_mode:
+      b.address_mode === 'auto' || b.address_mode === 'custom' || b.address_mode === 'hidden'
+        ? b.address_mode
+        : server.address_mode,
+    custom_address: b.custom_address !== undefined ? String(b.custom_address).trim() : server.custom_address,
   });
   monitor.refresh().catch(() => {});
   discordBot.refreshStatus();
@@ -203,6 +215,30 @@ router.delete('/:id', requireAdmin, (req, res) => {
   monitor.refresh().catch(() => {});
   discordBot.refreshStatus();
   res.json({ ok: true });
+});
+
+/** Replace this server's custom embed fields (message or link entries shown on the dashboard and in Discord). */
+router.put('/:id/fields', requireAdmin, (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const fields = req.body?.fields;
+  if (!Array.isArray(fields)) {
+    res.status(400).json({ error: 'fields must be an array' });
+    return;
+  }
+  setCustomFields(
+    server.id,
+    fields.map((f: any) => ({
+      type: f?.type === 'link' ? 'link' : 'message',
+      title: String(f?.title || ''),
+      content: String(f?.content || ''),
+    }))
+  );
+  discordBot.refreshStatus();
+  res.json({ fields: listCustomFields(server.id) });
 });
 
 /** Start / stop / restart / pause / unpause the container. */

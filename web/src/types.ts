@@ -27,6 +27,10 @@ export interface GameServer {
   discord_channel_id: string;
   rcon_configured: boolean;
   db_configured: boolean;
+  address: string | null;
+  address_mode: 'auto' | 'custom' | 'hidden';
+  custom_address: string;
+  custom_fields: CustomField[];
   state: ContainerState;
   statusText: string;
   cpuPercent?: number | null;
@@ -88,6 +92,13 @@ export interface DiscordRolePerm {
   can_broadcast: boolean | number;
 }
 
+export interface CustomField {
+  id?: number;
+  type: 'message' | 'link';
+  title: string;
+  content: string;
+}
+
 export interface ModEntry {
   name: string;
   size: number;
@@ -122,14 +133,27 @@ export interface DiscordConfigView {
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'pause' | 'unpause';
 
-export const GAME_PRESETS: Record<string, { label: string; rconPort: number; gamePort: number; broadcast: string }> = {
-  palworld: { label: 'Palworld', rconPort: 25575, gamePort: 8211, broadcast: 'Broadcast {message_nbsp}' },
-  minecraft: { label: 'Minecraft', rconPort: 25575, gamePort: 25565, broadcast: 'say {message}' },
-  satisfactory: { label: 'Satisfactory', rconPort: 0, gamePort: 7777, broadcast: '' },
-  valheim: { label: 'Valheim', rconPort: 0, gamePort: 2456, broadcast: '' },
-  rust: { label: 'Rust', rconPort: 28016, gamePort: 28015, broadcast: 'say {message}' },
-  ark: { label: 'ARK: Survival', rconPort: 27020, gamePort: 7777, broadcast: 'ServerChat {message}' },
-  '7dtd': { label: '7 Days to Die', rconPort: 8081, gamePort: 26900, broadcast: 'say "{message}"' },
-  azerothcore: { label: 'AzerothCore (WoW)', rconPort: 7878, gamePort: 8085, broadcast: '.announce {message}' },
-  custom: { label: 'Other / Custom', rconPort: 0, gamePort: 0, broadcast: 'say {message}' },
+export interface GamePreset {
+  label: string;
+  rconPort: number;
+  gamePort: number;
+  broadcast: string;
+  /** Whether this game has any remote console at all (RCON, SOAP, etc.) — controls whether RCON/console UI shows. */
+  supportsConsole: boolean;
+}
+
+export const GAME_PRESETS: Record<string, GamePreset> = {
+  palworld: { label: 'Palworld', rconPort: 25575, gamePort: 8211, broadcast: 'Broadcast {message_nbsp}', supportsConsole: true },
+  minecraft: { label: 'Minecraft', rconPort: 25575, gamePort: 25565, broadcast: 'say {message}', supportsConsole: true },
+  satisfactory: { label: 'Satisfactory', rconPort: 0, gamePort: 7777, broadcast: '', supportsConsole: false },
+  valheim: { label: 'Valheim', rconPort: 0, gamePort: 2456, broadcast: '', supportsConsole: false },
+  rust: { label: 'Rust', rconPort: 28016, gamePort: 28015, broadcast: 'say {message}', supportsConsole: true },
+  ark: { label: 'ARK: Survival', rconPort: 27020, gamePort: 7777, broadcast: 'ServerChat {message}', supportsConsole: true },
+  '7dtd': { label: '7 Days to Die', rconPort: 8081, gamePort: 26900, broadcast: 'say "{message}"', supportsConsole: true },
+  azerothcore: { label: 'AzerothCore (WoW)', rconPort: 7878, gamePort: 8085, broadcast: '.announce {message}', supportsConsole: true },
+  custom: { label: 'Other / Custom', rconPort: 0, gamePort: 0, broadcast: 'say {message}', supportsConsole: true },
 };
+
+export function gameSupportsConsole(game: string): boolean {
+  return GAME_PRESETS[game]?.supportsConsole ?? true;
+}

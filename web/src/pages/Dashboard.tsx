@@ -67,7 +67,7 @@ export default function Dashboard() {
       )}
       <div className="server-grid">
         {merged.map((s) => (
-          <ServerCard key={s.id} server={s} publicIp={publicIp} onError={setError} onDelayed={handleDelayed} />
+          <ServerCard key={s.id} server={s} onError={setError} onDelayed={handleDelayed} />
         ))}
       </div>
     </div>

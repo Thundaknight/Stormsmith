@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { ContainerSummary } from '../types';
-import { GAME_PRESETS } from '../types';
+import { GAME_PRESETS, gameSupportsConsole } from '../types';
 import StatusBadge from '../components/StatusBadge';
 
 export default function ImportServer() {
@@ -112,16 +112,24 @@ export default function ImportServer() {
               <input type="number" value={form.game_port} onChange={(e) => setForm({ ...form, game_port: e.target.value })} />
               <span className="hint">The port players join on; shown with your public IP.</span>
             </label>
-            <label>RCON host<input value={form.rcon_host} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" /></label>
-            <label>RCON port<input type="number" value={form.rcon_port} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} /></label>
-            <label>RCON password<input type="password" value={form.rcon_password} onChange={(e) => setForm({ ...form, rcon_password: e.target.value })} /></label>
-            <label>
-              Broadcast template
-              <input value={form.broadcast_template} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} />
-              <span className="hint">RCON command used for in-game messages. {'{message}'} is replaced with the text.</span>
-            </label>
+            {gameSupportsConsole(form.game) && (
+              <>
+                <label>RCON host<input value={form.rcon_host} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" /></label>
+                <label>RCON port<input type="number" value={form.rcon_port} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} /></label>
+                <label>RCON password<input type="password" value={form.rcon_password} onChange={(e) => setForm({ ...form, rcon_password: e.target.value })} /></label>
+                <label>
+                  Broadcast template
+                  <input value={form.broadcast_template} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} />
+                  <span className="hint">RCON command used for in-game messages. {'{message}'} is replaced with the text.</span>
+                </label>
+              </>
+            )}
           </div>
-          <p className="muted">RCON is optional — leave it blank to only manage the container. You can add it later in the server's settings.</p>
+          {gameSupportsConsole(form.game) ? (
+            <p className="muted">RCON is optional — leave it blank to only manage the container. You can add it later in the server's settings.</p>
+          ) : (
+            <p className="muted">{GAME_PRESETS[form.game]?.label || form.game} has no remote console — you can still start, stop, and restart it.</p>
+          )}
           <div className="btn-row">
             <button className="btn btn-primary" disabled={busy}>{busy ? 'Importing…' : 'Import server'}</button>
           </div>

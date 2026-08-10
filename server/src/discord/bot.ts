@@ -3,9 +3,10 @@ import {
   ChatInputCommandInteraction, Client, EmbedBuilder, GatewayIntentBits, GuildMember,
   Interaction, PermissionFlagsBits, REST, Routes, SlashCommandBuilder, TextChannel,
 } from 'discord.js';
+import { resolveDisplayAddress } from '../address';
 import {
   deleteStatusMessage, getDiscordConfig, getServerById, getStatusMessage,
-  listDiscordRolePerms, listServers, listStatusMessages, setStatusMessage,
+  listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
 import { monitor } from '../monitor';
@@ -202,19 +203,26 @@ class DiscordBot {
 
   /** Builds a single server's status embed. */
   private buildServerEmbed(s: ServerStatus): EmbedBuilder {
-    const publicIp = getPublicIp();
+    const server = getServerById(s.serverId);
     const lines = [
       `**Game:** ${GAME_LABELS[s.game] || s.game}`,
       `**Uptime:** ${s.state === 'running' ? formatUptime(s.startedAt) : '—'}`,
     ];
     const nextRestart = getNextScheduledRestart(s.serverId);
     if (nextRestart) lines.push(`**Next restart:** <t:${Math.floor(nextRestart / 1000)}:R>`);
-    if (publicIp && s.gamePort) lines.push(`**Server IP:** \`${publicIp}:${s.gamePort}\``);
+    const address = server ? resolveDisplayAddress(server, getPublicIp()) : null;
+    if (address) lines.push(`**Server IP:** \`${address}\``);
     lines.push(`**Players:** ${s.playerCount != null ? s.playerCount : '—'}`);
     if (s.players && s.players.length > 0) {
       const shown = s.players.slice(0, MAX_EMBED_PLAYERS).join(', ');
       const extra = s.players.length > MAX_EMBED_PLAYERS ? ` +${s.players.length - MAX_EMBED_PLAYERS} more` : '';
       lines.push(shown + extra);
+    }
+    if (server) {
+      for (const field of listCustomFields(server.id)) {
+        if (field.type === 'link') lines.push(`[${field.title || field.content}](${field.content})`);
+        else lines.push(field.content);
+      }
     }
     return new EmbedBuilder()
       .setTitle(`${STATE_EMOJI[s.state] || '❓'} ${s.name}`)

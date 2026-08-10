@@ -40,7 +40,17 @@ export interface GameServer {
   db_characters_db: string;
   db_auth_db: string;
   bot_account_prefix: string;
+  address_mode: string; // 'auto' | 'custom' | 'hidden'
+  custom_address: string;
   created_at: string;
+}
+
+export interface CustomField {
+  id: number;
+  server_id: number;
+  type: string; // 'message' | 'link'
+  title: string;
+  content: string;
 }
 
 export interface DiscordRolePerm {

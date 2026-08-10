@@ -181,6 +181,20 @@ a { color: var(--accent); text-decoration: none; }
   margin-top: 10px;
   font-size: 0.88rem;
 }
+
+.custom-fields { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 0.88rem; }
+.custom-field a { word-break: break-word; }
+.custom-field-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.custom-field-row .span-2 { grid-column: span 2; }
+@media (max-width: 760px) {
+  .custom-field-row { grid-template-columns: 1fr; }
+}
 .copy-btn {
   background: var(--bg-input);
   border: 1px solid var(--border);

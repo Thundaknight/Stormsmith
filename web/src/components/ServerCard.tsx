@@ -9,14 +9,13 @@ import StatusBadge from './StatusBadge';
 
 interface Props {
   server: GameServer;
-  publicIp: string;
   onError: (message: string) => void;
   onDelayed: (serverId: number, nextRestartAt: string) => void;
 }
 
 const MAX_PLAYER_CHIPS = 10;
 
-export default function ServerCard({ server, publicIp, onError, onDelayed }: Props) {
+export default function ServerCard({ server, onError, onDelayed }: Props) {
   const [busy, setBusy] = useState<ServerAction | null>(null);
   const [delaying, setDelaying] = useState(false);
 
@@ -62,11 +61,25 @@ export default function ServerCard({ server, publicIp, onError, onDelayed }: Pro
         <StatusBadge state={server.state} />
       </div>
 
-      {publicIp && server.game_port > 0 && (
+      {server.address && (
         <div className="server-address">
           <span className="muted">Address</span>
-          <span className="mono">{publicIp}:{server.game_port}</span>
-          <CopyButton text={`${publicIp}:${server.game_port}`} />
+          <span className="mono">{server.address}</span>
+          <CopyButton text={server.address} />
+        </div>
+      )}
+
+      {server.custom_fields.length > 0 && (
+        <div className="custom-fields">
+          {server.custom_fields.map((f, i) => (
+            <div key={f.id ?? i} className="custom-field">
+              {f.type === 'link' ? (
+                <a href={f.content} target="_blank" rel="noopener noreferrer">{f.title || f.content}</a>
+              ) : (
+                <span>{f.content}</span>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

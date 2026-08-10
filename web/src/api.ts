@@ -1,5 +1,5 @@
 import type {
-  ContainerSummary, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission, ServerAction, User,
+  ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission, ServerAction, User,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -60,6 +60,8 @@ export const api = {
   updateServer: (id: number, data: Record<string, unknown>) =>
     request<{ server: GameServer }>('PUT', `/api/servers/${id}`, data),
   deleteServer: (id: number) => request<{ ok: boolean }>('DELETE', `/api/servers/${id}`),
+  setCustomFields: (id: number, fields: CustomField[]) =>
+    request<{ fields: CustomField[] }>('PUT', `/api/servers/${id}/fields`, { fields }),
   serverAction: (id: number, action: ServerAction) =>
     request<{ ok: boolean; state: string }>('POST', `/api/servers/${id}/action`, { action }),
   delayRestart: (id: number) =>

@@ -4,6 +4,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import AzerothAccounts from '../components/AzerothAccounts';
+import CopyButton from '../components/CopyButton';
+import CustomFields from '../components/CustomFields';
 import ModsPanel from '../components/ModsPanel';
 import PalworldSettings from '../components/PalworldSettings';
 import StatusBadge from '../components/StatusBadge';
@@ -11,7 +13,7 @@ import { formatBytes, formatRelative, mergeLive } from '../format';
 import type { GameCommand } from '../gameCommands';
 import { GAME_COMMANDS, buildCommand } from '../gameCommands';
 import type { GameServer, ServerAction } from '../types';
-import { GAME_PRESETS } from '../types';
+import { GAME_PRESETS, gameSupportsConsole } from '../types';
 import { useStatusSocket } from '../useStatusSocket';
 
 interface ConsoleLine {
@@ -79,6 +81,8 @@ export default function ServerDetail() {
       db_characters_db: s.db_characters_db || 'acore_characters',
       db_auth_db: s.db_auth_db || 'acore_auth',
       bot_account_prefix: s.bot_account_prefix || 'rndbot',
+      address_mode: s.address_mode || 'auto',
+      custom_address: s.custom_address || '',
     });
     setRestartEnabled(!!s.restart_enabled);
     setDiscordShow(s.discord_show !== false);
@@ -227,6 +231,7 @@ export default function ServerDetail() {
   if (isAdmin) tabs.push({ id: 'settings', label: 'Settings' });
 
   const commands = GAME_COMMANDS[server.game];
+  const supportsConsole = gameSupportsConsole(server.game);
 
   return (
     <div>
@@ -237,6 +242,12 @@ export default function ServerDetail() {
           <div className="server-meta">
             <span className="game-badge">{GAME_PRESETS[server.game]?.label || server.game}</span>
             <span className="muted mono">{server.container_name}</span>
+            {server.address && (
+              <span className="muted mono">
+                {server.address}
+                <CopyButton text={server.address} />
+              </span>
+            )}
             {running && live.playerCount != null && (
               <span className="muted">{live.playerCount} player{live.playerCount === 1 ? '' : 's'} online</span>
             )}
@@ -317,7 +328,7 @@ export default function ServerDetail() {
             </div>
           )}
 
-          {server.can_rcon && (
+          {server.can_rcon && supportsConsole && (
             <>
               <div className="card">
                 <h2>{server.game === 'azerothcore' ? 'GM Console' : 'RCON Console'}</h2>
@@ -401,7 +412,7 @@ export default function ServerDetail() {
             </>
           )}
 
-          {!server.can_control && !server.can_rcon && (
+          {!server.can_control && !(server.can_rcon && supportsConsole) && (
             <div className="card empty-state">
               <p className="muted">You have view-only access to this server.</p>
             </div>
@@ -441,41 +452,73 @@ export default function ServerDetail() {
               <label>
                 Game port
                 <input type="number" value={form.game_port || ''} onChange={(e) => setForm({ ...form, game_port: e.target.value })} placeholder="e.g. 8211 for Palworld" />
-                <span className="hint">Shown with the public IP as the join address.</span>
               </label>
-              <label>
-                {form.game === 'azerothcore' ? 'SOAP host' : 'RCON host'}
-                <input value={form.rcon_host || ''} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" />
-              </label>
-              <label>
-                {form.game === 'azerothcore' ? 'SOAP port' : 'RCON port'}
-                <input type="number" value={form.rcon_port || ''} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} placeholder={form.game === 'azerothcore' ? '7878' : ''} />
-              </label>
-              {form.game === 'azerothcore' && (
+              <div className="span-2 restart-schedule">
                 <label>
-                  GM account username
-                  <input value={form.rcon_username || ''} onChange={(e) => setForm({ ...form, rcon_username: e.target.value })} placeholder="A GM level 3+ account" />
-                  <span className="hint">The account's access must have realmID = -1 in account_access.</span>
+                  Address display
+                  <select
+                    value={form.address_mode || 'auto'}
+                    onChange={(e) => setForm({ ...form, address_mode: e.target.value })}
+                  >
+                    <option value="auto">Public IP : game port</option>
+                    <option value="custom">Custom address</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
                 </label>
+                {form.address_mode === 'custom' && (
+                  <label>
+                    Custom address
+                    <input
+                      value={form.custom_address || ''}
+                      onChange={(e) => setForm({ ...form, custom_address: e.target.value })}
+                      placeholder="e.g. wow.mydomain.com or wow.mydomain.com:8085"
+                    />
+                  </label>
+                )}
+                <span className="hint">
+                  Shown on the dashboard card, this page, and the Discord embed. Use Custom for a domain name
+                  instead of the raw public IP, or Hidden to not show a join address at all.
+                </span>
+              </div>
+              {supportsConsole && (
+                <>
+                  <label>
+                    {form.game === 'azerothcore' ? 'SOAP host' : 'RCON host'}
+                    <input value={form.rcon_host || ''} onChange={(e) => setForm({ ...form, rcon_host: e.target.value })} placeholder="Usually your Unraid IP" />
+                  </label>
+                  <label>
+                    {form.game === 'azerothcore' ? 'SOAP port' : 'RCON port'}
+                    <input type="number" value={form.rcon_port || ''} onChange={(e) => setForm({ ...form, rcon_port: e.target.value })} placeholder={form.game === 'azerothcore' ? '7878' : ''} />
+                  </label>
+                  {form.game === 'azerothcore' && (
+                    <label>
+                      GM account username
+                      <input value={form.rcon_username || ''} onChange={(e) => setForm({ ...form, rcon_username: e.target.value })} placeholder="A GM level 3+ account" />
+                      <span className="hint">The account's access must have realmID = -1 in account_access.</span>
+                    </label>
+                  )}
+                  <label>
+                    {form.game === 'azerothcore' ? 'GM account password' : 'RCON password'}
+                    <input type="password" value={form.rcon_password || ''} onChange={(e) => setForm({ ...form, rcon_password: e.target.value })} />
+                  </label>
+                </>
               )}
-              <label>
-                {form.game === 'azerothcore' ? 'GM account password' : 'RCON password'}
-                <input type="password" value={form.rcon_password || ''} onChange={(e) => setForm({ ...form, rcon_password: e.target.value })} />
-              </label>
               <label className="span-2">
                 Game config file path
                 <input value={form.config_path || ''} onChange={(e) => setForm({ ...form, config_path: e.target.value })} placeholder="Auto-detected for Palworld" />
                 <span className="hint">Path inside the game container. Leave blank to auto-detect.</span>
               </label>
-              <label className="span-2">
-                Broadcast command template
-                <input value={form.broadcast_template || ''} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} placeholder="say {message}" />
-                <span className="hint">
-                  Use {'{message}'} for the text. For Palworld use {'{message_nbsp}'} — it sends spaces as
-                  non-breaking spaces so messages display normally in-game. {'{message_underscored}'} is also
-                  available if your server needs the old underscore workaround.
-                </span>
-              </label>
+              {supportsConsole && (
+                <label className="span-2">
+                  Broadcast command template
+                  <input value={form.broadcast_template || ''} onChange={(e) => setForm({ ...form, broadcast_template: e.target.value })} placeholder="say {message}" />
+                  <span className="hint">
+                    Use {'{message}'} for the text. For Palworld use {'{message_nbsp}'} — it sends spaces as
+                    non-breaking spaces so messages display normally in-game. {'{message_underscored}'} is also
+                    available if your server needs the old underscore workaround.
+                  </span>
+                </label>
+              )}
               {form.game === 'azerothcore' && (
                 <div className="span-2 restart-schedule">
                   <div className="setting-label" style={{ fontWeight: 700 }}>Player database (optional)</div>
@@ -597,6 +640,8 @@ export default function ServerDetail() {
               </div>
             </form>
           </div>
+
+          <CustomFields serverId={server.id} initialFields={server.custom_fields} />
 
           <div className="card danger-zone">
             <h2>Danger Zone</h2>
