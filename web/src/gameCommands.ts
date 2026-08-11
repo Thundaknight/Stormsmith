@@ -104,12 +104,6 @@ export const GAME_COMMANDS: Record<string, GameCommand[]> = {
       params: [],
     },
     {
-      command: '.who',
-      label: "Who's Online",
-      description: 'List all online characters with level and zone (includes bots).',
-      params: [],
-    },
-    {
       command: '.announce',
       label: 'Announce',
       description: 'Send a chat announcement to all online players.',
