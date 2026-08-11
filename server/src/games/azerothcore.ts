@@ -11,10 +11,23 @@ import type { GameServer } from '../types';
 
 const IDENTIFIER_RE = /^[A-Za-z0-9_]+$/;
 
+// Race/class ids match Blizzard's ChrRaces.dbc / ChrClasses.dbc, which AzerothCore's
+// characters.race/class columns store directly — stable across client versions.
+const RACE_NAMES: Record<number, string> = {
+  1: 'Human', 2: 'Orc', 3: 'Dwarf', 4: 'Night Elf', 5: 'Undead', 6: 'Tauren',
+  7: 'Gnome', 8: 'Troll', 9: 'Goblin', 10: 'Blood Elf', 11: 'Draenei', 22: 'Worgen',
+};
+
+const CLASS_NAMES: Record<number, string> = {
+  1: 'Warrior', 2: 'Paladin', 3: 'Hunter', 4: 'Rogue', 5: 'Priest', 6: 'Death Knight',
+  7: 'Shaman', 8: 'Mage', 9: 'Warlock', 10: 'Monk', 11: 'Druid', 12: 'Demon Hunter',
+};
+
 export function hasDbConfig(server: GameServer): boolean {
   return !!(server.db_host && server.db_port && server.db_user && server.db_characters_db && server.db_auth_db);
 }
 
+/** "Fruitpunch 32 Undead Rogue" per online character, e.g. for the Discord embed and web player chips. */
 export async function fetchAzerothPlayers(server: GameServer): Promise<string[]> {
   if (!hasDbConfig(server)) {
     throw new Error('Database connection is not configured for this server');
@@ -35,13 +48,18 @@ export async function fetchAzerothPlayers(server: GameServer): Promise<string[]>
   try {
     const prefix = server.bot_account_prefix || 'rndbot';
     const [rows] = await conn.query(
-      `SELECT c.name AS name FROM \`${charactersDb}\`.characters c
+      `SELECT c.name AS name, c.level AS level, c.race AS race, c.class AS class
+       FROM \`${charactersDb}\`.characters c
        JOIN \`${authDb}\`.account a ON c.account = a.id
        WHERE c.online = 1 AND a.username NOT LIKE ?
        ORDER BY c.name`,
       [`${prefix}%`]
     );
-    return (rows as Array<{ name: string }>).map((r) => r.name);
+    return (rows as Array<{ name: string; level: number; race: number; class: number }>).map((r) => {
+      const race = RACE_NAMES[r.race] || 'Unknown';
+      const cls = CLASS_NAMES[r.class] || 'Unknown';
+      return `${r.name} ${r.level} ${race} ${cls}`;
+    });
   } finally {
     await conn.end().catch(() => {});
   }
