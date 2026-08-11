@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
 import type {
-  CustomField, DiscordConfig, DiscordRolePerm, GameServer, ServerPermission, User, WowPasswordReset,
+  CustomField, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission, User, WowPasswordReset,
 } from './types';
 
 export const db = new Database(config.dbFile);
@@ -116,6 +116,15 @@ export function initDb(): void {
       token TEXT PRIMARY KEY,
       server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
       username TEXT NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS invite_links (
+      token TEXT PRIMARY KEY,
+      role TEXT NOT NULL DEFAULT 'user',
+      permissions TEXT NOT NULL DEFAULT '[]',
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -476,4 +485,35 @@ export function getWowPasswordReset(token: string): WowPasswordReset | undefined
 
 export function deleteWowPasswordReset(token: string): void {
   db.prepare('DELETE FROM wow_password_resets WHERE token = ?').run(token);
+}
+
+// ---- Invite links (sign up without Discord) ----
+
+export function sweepExpiredInviteLinks(): void {
+  db.prepare('DELETE FROM invite_links WHERE expires_at < ?').run(Date.now());
+}
+
+export function createInviteLink(r: {
+  token: string; role: string; permissions: string; created_by: number; expires_at: number;
+}): void {
+  sweepExpiredInviteLinks();
+  db.prepare(
+    `INSERT INTO invite_links (token, role, permissions, created_by, expires_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(r.token, r.role, r.permissions, r.created_by, r.expires_at);
+}
+
+export function listInviteLinks(): InviteLink[] {
+  sweepExpiredInviteLinks();
+  return db.prepare('SELECT * FROM invite_links ORDER BY created_at DESC').all() as InviteLink[];
+}
+
+export function getInviteLink(token: string): InviteLink | undefined {
+  return db
+    .prepare('SELECT * FROM invite_links WHERE token = ? AND expires_at > ?')
+    .get(token, Date.now()) as InviteLink | undefined;
+}
+
+export function deleteInviteLink(token: string): void {
+  db.prepare('DELETE FROM invite_links WHERE token = ?').run(token);
 }

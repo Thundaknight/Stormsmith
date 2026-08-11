@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import type { GameServer, Permission, User } from '../types';
+import CopyButton from '../components/CopyButton';
+import { formatRelative } from '../format';
+import type { GameServer, InviteLink, Permission, User } from '../types';
 
 type PermKey = 'can_view' | 'can_control' | 'can_rcon' | 'can_configure';
 
@@ -60,6 +62,7 @@ export default function Users() {
   const { user: me } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [servers, setServers] = useState<GameServer[]>([]);
+  const [invites, setInvites] = useState<InviteLink[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -73,11 +76,19 @@ export default function Users() {
   const [onboardingPerms, setOnboardingPerms] = useState<Map<number, Permission>>(new Map());
   const [onboardingBusy, setOnboardingBusy] = useState(false);
 
+  // Invite links (sign up without Discord)
+  const [invitingOpen, setInvitingOpen] = useState(false);
+  const [inviteRole, setInviteRole] = useState<'user' | 'admin'>('user');
+  const [invitePerms, setInvitePerms] = useState<Map<number, Permission>>(new Map());
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteLink, setInviteLink] = useState('');
+
   const load = useCallback(() => {
-    Promise.all([api.listUsers(), api.listServers()])
-      .then(([u, s]) => {
+    Promise.all([api.listUsers(), api.listServers(), api.listInvites()])
+      .then(([u, s, i]) => {
         setUsers(u.users);
         setServers(s.servers);
+        setInvites(i.invites);
       })
       .catch((err) => setError(err.message));
   }, []);
@@ -195,6 +206,44 @@ export default function Users() {
     }
   };
 
+  const startInvite = () => {
+    setInvitingOpen(true);
+    setInviteRole('user');
+    setInvitePerms(new Map());
+    setInviteLink('');
+  };
+
+  const setInvitePerm = (serverId: number, key: PermKey, value: boolean) => {
+    setInvitePerms((prev) => {
+      const next = new Map(prev);
+      next.set(serverId, applyPermRule(prev.get(serverId) || EMPTY_PERM(serverId), key, value));
+      return next;
+    });
+  };
+
+  const submitInvite = async () => {
+    setInviteBusy(true);
+    setError('');
+    try {
+      const r = await api.createInvite(inviteRole, inviteRole === 'user' ? [...invitePerms.values()] : undefined);
+      setInviteLink(`${window.location.origin}/invite/${r.token}`);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  const revokeInvite = async (token: string) => {
+    try {
+      await api.revokeInvite(token);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   return (
     <div>
       <div className="page-head"><h1>Users</h1></div>
@@ -204,9 +253,37 @@ export default function Users() {
       <div className="card">
         <h2>How people get an account</h2>
         <p className="muted">
-          The only manually-created account is the initial admin. Everyone else signs up with Discord and lands
-          below awaiting your approval — set up Discord sign-in on the Discord Bot page if you haven't already.
+          The only manually-created account is the initial admin. Everyone else either signs up with Discord and
+          lands below awaiting your approval, or gets an invite link below — no Discord required.
         </p>
+      </div>
+
+      <div className="card">
+        <h2>Invite links</h2>
+        <p className="muted">
+          Generate a one-time link for someone to create their own username and password — no Discord needed. Role
+          and access are set now, the same as approving a Discord sign-up. Expires in 24 hours or as soon as it's used.
+        </p>
+        <button className="btn btn-primary" onClick={startInvite}>Generate Invite Link</button>
+        {invites.length > 0 && (
+          <table className="table" style={{ marginTop: 12 }}>
+            <thead>
+              <tr><th>Role</th><th>Expires</th><th></th></tr>
+            </thead>
+            <tbody>
+              {invites.map((i) => (
+                <tr key={i.token}>
+                  <td><span className={`role-badge role-${i.role}`}>{i.role}</span></td>
+                  <td className="muted">{formatRelative(i.expiresAt)}</td>
+                  <td className="table-actions">
+                    <CopyButton text={`${window.location.origin}/invite/${i.token}`} title="Copy invite link" />
+                    <button className="btn btn-small btn-danger-outline" onClick={() => revokeInvite(i.token)}>Revoke</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {pending.length > 0 && (
@@ -304,6 +381,54 @@ export default function Users() {
               <button className="btn btn-primary" onClick={savePermissions}>Save</button>
               <button className="btn" onClick={() => setEditingUser(null)}>Cancel</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {invitingOpen && (
+        <div className="modal-backdrop" onClick={() => setInvitingOpen(false)}>
+          <div className="card modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Generate Invite Link</h2>
+            {inviteLink ? (
+              <>
+                <div className="alert alert-ok">
+                  <div>Share this link with the invitee — it works once, for one person.</div>
+                  <div className="inline-form" style={{ marginTop: 6 }}>
+                    <input className="mono" value={inviteLink} readOnly onFocus={(e) => e.target.select()} />
+                    <CopyButton text={inviteLink} />
+                  </div>
+                </div>
+                <div className="btn-row">
+                  <button className="btn" onClick={() => setInvitingOpen(false)}>Done</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="muted">
+                  Choose this account's role and, if it's a regular user, what it can access — the invitee can't
+                  change these themselves.
+                </p>
+                <div className="checkbox-row" style={{ marginBottom: 14 }}>
+                  <label className="checkbox-label">
+                    <input type="radio" name="invite-role" checked={inviteRole === 'user'} onChange={() => setInviteRole('user')} />
+                    User — granular per-server access
+                  </label>
+                  <label className="checkbox-label">
+                    <input type="radio" name="invite-role" checked={inviteRole === 'admin'} onChange={() => setInviteRole('admin')} />
+                    Admin — full access to everything
+                  </label>
+                </div>
+                {inviteRole === 'user' && (
+                  <PermissionGrid servers={servers} perms={invitePerms} onChange={setInvitePerm} />
+                )}
+                <div className="btn-row">
+                  <button className="btn btn-primary" disabled={inviteBusy} onClick={submitInvite}>
+                    {inviteBusy ? 'Generating…' : 'Generate Link'}
+                  </button>
+                  <button className="btn" onClick={() => setInvitingOpen(false)}>Cancel</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

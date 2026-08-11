@@ -5,6 +5,7 @@ import Account from './pages/Account';
 import Dashboard from './pages/Dashboard';
 import DiscordSettings from './pages/DiscordSettings';
 import ImportServer from './pages/ImportServer';
+import InviteSignup from './pages/InviteSignup';
 import Login from './pages/Login';
 import ServerDetail from './pages/ServerDetail';
 import Users from './pages/Users';
@@ -15,15 +16,23 @@ function WowPasswordResetRoute() {
   return <WowPasswordReset token={token || ''} />;
 }
 
+function InviteSignupRoute() {
+  const { token } = useParams();
+  return <InviteSignup token={token || ''} />;
+}
+
 export default function App() {
   const { user, loading } = useAuth();
-  const isWowResetPath = window.location.pathname.startsWith('/wow-password-reset/');
+  const path = window.location.pathname;
+  const isWowResetPath = path.startsWith('/wow-password-reset/');
+  const isInvitePath = path.startsWith('/invite/');
 
-  // Publicly accessible regardless of login state — the player proves identity via the token, not a Stormsmith account.
-  if (isWowResetPath) {
+  // Publicly accessible regardless of login state — identity is proven by possessing the token, not a Stormsmith account.
+  if (isWowResetPath || isInvitePath) {
     return (
       <Routes>
         <Route path="/wow-password-reset/:token" element={<WowPasswordResetRoute />} />
+        <Route path="/invite/:token" element={<InviteSignupRoute />} />
       </Routes>
     );
   }

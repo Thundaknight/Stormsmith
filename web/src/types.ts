@@ -119,6 +119,13 @@ export interface WowAccount {
   lastLogin: string | null;
 }
 
+export interface InviteLink {
+  token: string;
+  role: Role;
+  expiresAt: string;
+  createdAt: string;
+}
+
 export interface ModEntry {
   name: string;
   size: number;

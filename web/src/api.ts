@@ -1,6 +1,6 @@
 import type {
-  Account, ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission,
-  ServerAction, User, WowAccount,
+  Account, ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, InviteLink, ModEntry,
+  Permission, ServerAction, User, WowAccount,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -129,6 +129,15 @@ export const api = {
     }>('GET', `/api/users/${id}/permissions`),
   setUserPermissions: (id: number, permissions: Permission[]) =>
     request<{ permissions: unknown }>('PUT', `/api/users/${id}/permissions`, { permissions }),
+
+  // invite links (sign up without Discord)
+  createInvite: (role: string, permissions?: Permission[]) =>
+    request<{ token: string; role: string; expiresAt: string }>('POST', '/api/users/invites', { role, permissions }),
+  listInvites: () => request<{ invites: InviteLink[] }>('GET', '/api/users/invites'),
+  revokeInvite: (token: string) => request<{ ok: boolean }>('DELETE', `/api/users/invites/${token}`),
+  getInviteInfo: (token: string) => request<{ role: string }>('GET', `/api/invite/${token}`),
+  redeemInvite: (token: string, username: string, password: string) =>
+    request<{ token: string; user: User }>('POST', `/api/invite/${token}`, { username, password }),
 
   // discord
   getDiscordConfig: () => request<{ config: DiscordConfigView }>('GET', '/api/discord/config'),

@@ -138,6 +138,15 @@ export interface WowPasswordReset {
   created_at: string;
 }
 
+export interface InviteLink {
+  token: string;
+  role: Role;
+  permissions: string;
+  created_by: number;
+  expires_at: number;
+  created_at: string;
+}
+
 export interface AuthTokenPayload {
   userId: number;
   username: string;

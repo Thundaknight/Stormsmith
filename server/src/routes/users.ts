@@ -1,12 +1,60 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import { hashPassword, requireAdmin, requireAuth } from '../auth';
 import {
-  approveUser, deleteUser, getUserById, listPermissionsForUser, listUsers,
-  setPermissionsForUser, updateUser,
+  approveUser, createInviteLink, deleteInviteLink, deleteUser, getUserById, listInviteLinks,
+  listPermissionsForUser, listUsers, setPermissionsForUser, updateUser,
 } from '../db';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
+
+const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Lets an admin invite someone who doesn't use Discord: generates a
+ * single-use link (role and, for a regular user, per-server access are
+ * decided now, same as approving a Discord sign-up) that the invitee visits
+ * to pick their own username and password. Expires in 24h or as soon as
+ * it's redeemed, whichever comes first.
+ */
+router.post('/invites', (req, res) => {
+  const { role, permissions } = req.body || {};
+  if (role !== undefined && role !== 'admin' && role !== 'user') {
+    res.status(400).json({ error: "Role must be 'admin' or 'user'" });
+    return;
+  }
+  const effectiveRole = role === 'admin' ? 'admin' : 'user';
+  const perms =
+    effectiveRole === 'user' && Array.isArray(permissions)
+      ? permissions.map((p: any) => ({
+          server_id: parseInt(p.server_id, 10),
+          can_view: !!p.can_view,
+          can_control: !!p.can_control,
+          can_rcon: !!p.can_rcon,
+          can_configure: !!p.can_configure,
+        }))
+      : [];
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + INVITE_TTL_MS;
+  createInviteLink({
+    token, role: effectiveRole, permissions: JSON.stringify(perms), created_by: req.user!.userId, expires_at: expiresAt,
+  });
+  res.json({ token, role: effectiveRole, expiresAt: new Date(expiresAt).toISOString() });
+});
+
+router.get('/invites', (_req, res) => {
+  res.json({
+    invites: listInviteLinks().map((i) => ({
+      token: i.token, role: i.role, expiresAt: new Date(i.expires_at).toISOString(), createdAt: i.created_at,
+    })),
+  });
+});
+
+router.delete('/invites/:token', (req, res) => {
+  deleteInviteLink(req.params.token);
+  res.json({ ok: true });
+});
 
 function publicUser(u: ReturnType<typeof listUsers>[number]) {
   return {
