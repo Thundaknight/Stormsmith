@@ -28,11 +28,8 @@ const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   wowCreate: 'can_create_wow_accounts',
 };
 
-/** Strips a Discord display name down to a safe AzerothCore account name. */
-function sanitizeWowUsername(input: string): string {
-  const cleaned = input.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
-  return cleaned || 'player';
-}
+/** Account names go straight into a SOAP GM command, so keep them to a safe, unambiguous charset. */
+const WOW_USERNAME_RE = /^[A-Za-z0-9]{3,16}$/;
 
 const STATE_EMOJI: Record<ContainerState, string> = {
   running: '🟢', paused: '🟡', restarting: '🔄', exited: '🔴',
@@ -203,10 +200,7 @@ class DiscordBot {
         .setName('wowcreate')
         .setDescription('DM a Discord user to set up an AzerothCore WoW account')
         .addUserOption((o) => o.setName('user').setDescription('Discord user to create the account for').setRequired(true))
-        .addStringOption(serverOption)
-        .addStringOption((o) =>
-          o.setName('username').setDescription('WoW account username (default: their Discord name)').setRequired(false)
-        ),
+        .addStringOption(serverOption),
     ].map((c) => c.toJSON());
 
     const rest = new REST().setToken(cfg.bot_token);
@@ -494,15 +488,24 @@ class DiscordBot {
 
   /** "Set Password" button on the /wowcreate DM — only the invited user may click it. */
   private async handleWowCreateButton(interaction: ButtonInteraction, parts: string[]): Promise<void> {
-    const [serverIdStr, targetUserId, requesterUserId, username] = parts;
+    const [serverIdStr, targetUserId, requesterUserId] = parts;
     if (interaction.user.id !== targetUserId) {
       await interaction.reply({ content: '⛔ This button is not for you.', ephemeral: true });
       return;
     }
     const modal = new ModalBuilder()
-      .setCustomId(`wowcreatepw:${serverIdStr}:${targetUserId}:${requesterUserId}:${username}`)
-      .setTitle('Set your WoW account password')
+      .setCustomId(`wowcreatepw:${serverIdStr}:${targetUserId}:${requesterUserId}`)
+      .setTitle('Set up your WoW account')
       .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(
+          new TextInputBuilder()
+            .setCustomId('username')
+            .setLabel('Username (letters/numbers only, 3-16)')
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(3)
+            .setMaxLength(16)
+            .setRequired(true)
+        ),
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId('password')
@@ -525,18 +528,26 @@ class DiscordBot {
     await interaction.showModal(modal);
   }
 
-  /** Password modal submitted from the /wowcreate DM — creates the AzerothCore account over SOAP. */
+  /** Username/password modal submitted from the /wowcreate DM — creates the AzerothCore account over SOAP. */
   private async handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
-    const [prefix, serverIdStr, targetUserId, requesterUserId, username] = interaction.customId.split(':');
+    const [prefix, serverIdStr, targetUserId, requesterUserId] = interaction.customId.split(':');
     if (prefix !== 'wowcreatepw') return;
     if (interaction.user.id !== targetUserId) {
       await interaction.reply({ content: '⛔ This form is not for you.', ephemeral: true });
       return;
     }
+    const username = interaction.fields.getTextInputValue('username').trim();
     const password = interaction.fields.getTextInputValue('password');
     const confirm = interaction.fields.getTextInputValue('confirm');
+    if (!WOW_USERNAME_RE.test(username)) {
+      await interaction.reply({
+        content: '⛔ Username must be 3-16 letters/numbers with no spaces or symbols — click the button and try again.',
+        ephemeral: true,
+      });
+      return;
+    }
     if (password !== confirm) {
-      await interaction.reply({ content: '⛔ Passwords did not match — ask for a new setup link and try again.', ephemeral: true });
+      await interaction.reply({ content: '⛔ Passwords did not match — click the button and try again.', ephemeral: true });
       return;
     }
     const server = getServerById(parseInt(serverIdStr, 10));
@@ -548,6 +559,12 @@ class DiscordBot {
     try {
       const response = await sendRconCommand(server, `.account create ${username} ${password}`);
       const text = response.trim() || '(no response)';
+      if (/already\s*exist/i.test(text)) {
+        await interaction.editReply(
+          `⛔ Username **${username}** is already taken on **${server.name}** — click the button again and pick a different one.`
+        );
+        return;
+      }
       await interaction.editReply(`✅ **${server.name}**\n\`\`\`\n${text.slice(0, 1800)}\n\`\`\``);
       if (requesterUserId !== targetUserId) {
         const requester = await interaction.client.users.fetch(requesterUserId).catch(() => null);
@@ -661,21 +678,19 @@ class DiscordBot {
         await interaction.reply({ content: '⛔ Cannot create an account for a bot user.', ephemeral: true });
         return;
       }
-      const usernameOption = interaction.options.getString('username');
-      const username = sanitizeWowUsername(usernameOption || targetUser.username);
-      const customId = `wowcreate:${server.id}:${targetUser.id}:${interaction.user.id}:${username}`;
+      const customId = `wowcreate:${server.id}:${targetUser.id}:${interaction.user.id}`;
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(customId).setLabel('Set Password').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId(customId).setLabel('Set Up Account').setStyle(ButtonStyle.Primary)
       );
       await interaction.deferReply({ ephemeral: true });
       try {
         await targetUser.send({
           content:
-            `👋 You've been invited to set up a WoW account (**${username}**) on **${server.name}**.\n` +
-            `Click below and enter a password to finish setup.`,
+            `👋 You've been invited to set up a WoW account on **${server.name}**.\n` +
+            `Click below and choose a username and password to finish setup.`,
           components: [row],
         });
-        await interaction.editReply(`📨 Sent ${targetUser} a DM to set up account **${username}** on **${server.name}**.`);
+        await interaction.editReply(`📨 Sent ${targetUser} a DM to set up their account on **${server.name}**.`);
       } catch {
         await interaction.editReply(`❌ Couldn't DM ${targetUser} — they may have DMs disabled for this server.`);
       }
