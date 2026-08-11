@@ -119,6 +119,25 @@ export interface WowAccount {
   lastLogin: string | null;
 }
 
+export interface WowCharacter {
+  name: string;
+  level: number;
+  race: string;
+  class: string;
+  online: boolean;
+}
+
+export type WowAccountLinkPurpose = 'create' | 'reset';
+
+export interface WowAccountLink {
+  token: string;
+  purpose: WowAccountLinkPurpose;
+  username: string;
+  gmLevel: number;
+  expiresAt: string;
+  createdAt: string;
+}
+
 export interface InviteLink {
   token: string;
   role: Role;

@@ -3,8 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import AzerothAccounts from '../components/AzerothAccounts';
-import AzerothPlayerList from '../components/AzerothPlayerList';
+import AzerothUserManagement from '../components/AzerothUserManagement';
 import CopyButton from '../components/CopyButton';
 import CustomFields from '../components/CustomFields';
 import ModsPanel from '../components/ModsPanel';
@@ -423,10 +422,7 @@ export default function ServerDetail() {
 
       {tab === 'accounts' && server.game === 'azerothcore' && (
         server.can_rcon ? (
-          <>
-            <AzerothPlayerList serverId={server.id} dbConfigured={server.db_configured} />
-            <AzerothAccounts serverId={server.id} dbConfigured={server.db_configured} />
-          </>
+          <AzerothUserManagement serverId={server.id} dbConfigured={server.db_configured} />
         ) : (
           <div className="card empty-state">
             <p className="muted">You have view-only access to this server.</p>

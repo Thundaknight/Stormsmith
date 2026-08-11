@@ -129,10 +129,14 @@ export interface DiscordConfig {
   oauth_restrict_to_guild: number;
 }
 
-export interface WowPasswordReset {
+export type WowAccountLinkPurpose = 'create' | 'reset';
+
+export interface WowAccountLink {
   token: string;
   server_id: number;
+  purpose: WowAccountLinkPurpose;
   username: string;
+  gm_level: number;
   created_by: number;
   expires_at: number;
   created_at: string;

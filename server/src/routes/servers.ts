@@ -2,8 +2,8 @@ import crypto from 'crypto';
 import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
-  createServer, createWowPasswordReset, deleteServer, getServerById, listCustomFields, listServers,
-  setCustomFields, updateServer,
+  createServer, createWowAccountLink, deleteServer, deleteWowAccountLink, getServerById, listCustomFields,
+  listServers, listWowAccountLinks, setCustomFields, updateServer,
 } from '../db';
 import { resolveDisplayAddress } from '../address';
 import {
@@ -11,7 +11,7 @@ import {
   putContainerFile, readContainerFile, writeContainerFile,
 } from '../docker';
 import { discordBot } from '../discord/bot';
-import { fetchAzerothAccounts, hasDbConfig } from '../games/azerothcore';
+import { fetchAzerothAccounts, fetchAzerothCharacters, hasDbConfig } from '../games/azerothcore';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
@@ -20,7 +20,7 @@ import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
 import type { GameServer, ServerAction } from '../types';
 import { asyncRoute } from './helpers';
 
-const WOW_RESET_TTL_MS = 24 * 60 * 60 * 1000;
+const WOW_LINK_TTL_MS = 24 * 60 * 60 * 1000;
 
 const router = Router();
 router.use(requireAuth);
@@ -338,6 +338,41 @@ router.get('/:id/wow-accounts', requireServerPermission('rcon'), asyncRoute(asyn
   res.json({ accounts });
 }));
 
+/** The characters on one login account. */
+router.get('/:id/wow-accounts/:username/characters', requireServerPermission('rcon'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server || server.game !== 'azerothcore') {
+    res.status(400).json({ error: 'Not an AzerothCore server' });
+    return;
+  }
+  if (!hasDbConfig(server)) {
+    res.status(400).json({ error: 'Player database is not configured for this server — set it in the Settings tab.' });
+    return;
+  }
+  const characters = await fetchAzerothCharacters(server, req.params.username);
+  res.json({ characters });
+}));
+
+/** Currently-outstanding account-creation and password-reset links for this server. */
+router.get('/:id/wow-accounts/links', requireServerPermission('rcon'), (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server || server.game !== 'azerothcore') {
+    res.status(400).json({ error: 'Not an AzerothCore server' });
+    return;
+  }
+  res.json({
+    links: listWowAccountLinks(server.id).map((l) => ({
+      token: l.token, purpose: l.purpose, username: l.username, gmLevel: l.gm_level,
+      expiresAt: new Date(l.expires_at).toISOString(), createdAt: l.created_at,
+    })),
+  });
+});
+
+router.delete('/:id/wow-accounts/links/:token', requireServerPermission('rcon'), (req, res) => {
+  deleteWowAccountLink(req.params.token);
+  res.json({ ok: true });
+});
+
 /**
  * Generates a one-time, publicly-accessible link a player can use to set
  * their own password, instead of an admin typing it for them. Expires after
@@ -355,8 +390,32 @@ router.post('/:id/wow-accounts/reset-link', requireServerPermission('rcon'), (re
     return;
   }
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + WOW_RESET_TTL_MS;
-  createWowPasswordReset({ token, server_id: server.id, username, created_by: req.user!.userId, expires_at: expiresAt });
+  const expiresAt = Date.now() + WOW_LINK_TTL_MS;
+  createWowAccountLink({
+    token, server_id: server.id, purpose: 'reset', username, gm_level: 0,
+    created_by: req.user!.userId, expires_at: expiresAt,
+  });
+  res.json({ token, expiresAt: new Date(expiresAt).toISOString() });
+});
+
+/**
+ * Generates a one-time, publicly-accessible link a new player can use to
+ * create their own account (they choose their own username and password) at
+ * a GM level the admin sets now. Expires after 24 hours or as soon as it's used.
+ */
+router.post('/:id/wow-accounts/create-link', requireServerPermission('rcon'), (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server || server.game !== 'azerothcore') {
+    res.status(400).json({ error: 'Not an AzerothCore server' });
+    return;
+  }
+  const gmLevel = Math.min(Math.max(parseInt(req.body?.gmLevel, 10) || 0, 0), 3);
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + WOW_LINK_TTL_MS;
+  createWowAccountLink({
+    token, server_id: server.id, purpose: 'create', username: '', gm_level: gmLevel,
+    created_by: req.user!.userId, expires_at: expiresAt,
+  });
   res.json({ token, expiresAt: new Date(expiresAt).toISOString() });
 });
 

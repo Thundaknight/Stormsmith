@@ -1,6 +1,6 @@
 import type {
   Account, ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, InviteLink, ModEntry,
-  Permission, ServerAction, User, WowAccount,
+  Permission, ServerAction, User, WowAccount, WowAccountLink, WowCharacter,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -85,12 +85,19 @@ export const api = {
 
   // AzerothCore player accounts
   listWowAccounts: (id: number) => request<{ accounts: WowAccount[] }>('GET', `/api/servers/${id}/wow-accounts`),
+  listWowCharacters: (id: number, username: string) =>
+    request<{ characters: WowCharacter[] }>('GET', `/api/servers/${id}/wow-accounts/${encodeURIComponent(username)}/characters`),
+  listWowAccountLinks: (id: number) => request<{ links: WowAccountLink[] }>('GET', `/api/servers/${id}/wow-accounts/links`),
+  revokeWowAccountLink: (id: number, token: string) =>
+    request<{ ok: boolean }>('DELETE', `/api/servers/${id}/wow-accounts/links/${token}`),
   createWowResetLink: (id: number, username: string) =>
     request<{ token: string; expiresAt: string }>('POST', `/api/servers/${id}/wow-accounts/reset-link`, { username }),
-  getWowResetInfo: (token: string) =>
-    request<{ username: string; serverName: string }>('GET', `/api/wow-reset/${token}`),
-  submitWowReset: (token: string, password: string) =>
-    request<{ ok: boolean }>('POST', `/api/wow-reset/${token}`, { password }),
+  createWowAccountCreateLink: (id: number, gmLevel: number) =>
+    request<{ token: string; expiresAt: string }>('POST', `/api/servers/${id}/wow-accounts/create-link`, { gmLevel }),
+  getWowAccountLinkInfo: (token: string) =>
+    request<{ purpose: string; username: string; serverName: string }>('GET', `/api/wow-account/${token}`),
+  redeemWowAccountLink: (token: string, data: { username?: string; password: string }) =>
+    request<{ ok: boolean }>('POST', `/api/wow-account/${token}`, data),
 
   // mods
   listMods: (id: number, folder: string) =>

@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
 
-export default function WowPasswordReset({ token }: { token: string }) {
-  const [info, setInfo] = useState<{ username: string; serverName: string } | null>(null);
+export default function WowAccountLink({ token }: { token: string }) {
+  const [info, setInfo] = useState<{ purpose: string; username: string; serverName: string } | null>(null);
   const [invalid, setInvalid] = useState(false);
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -12,12 +13,18 @@ export default function WowPasswordReset({ token }: { token: string }) {
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    api.getWowResetInfo(token).then(setInfo).catch(() => setInvalid(true));
+    api.getWowAccountLinkInfo(token).then(setInfo).catch(() => setInvalid(true));
   }, [token]);
+
+  const isCreate = info?.purpose === 'create';
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    if (isCreate && (!username.trim() || /\s/.test(username.trim()))) {
+      setError('Username is required and cannot contain spaces');
+      return;
+    }
     if (password.length < 6) {
       setError('Password must be at least 6 characters');
       return;
@@ -28,7 +35,7 @@ export default function WowPasswordReset({ token }: { token: string }) {
     }
     setBusy(true);
     try {
-      await api.submitWowReset(token, password);
+      await api.redeemWowAccountLink(token, isCreate ? { username: username.trim(), password } : { password });
       setDone(true);
     } catch (err: any) {
       setError(err.message);
@@ -50,23 +57,34 @@ export default function WowPasswordReset({ token }: { token: string }) {
           <p className="muted">Loading…</p>
         ) : done ? (
           <div className="alert alert-ok">
-            Your password for <strong>{info.username}</strong> on <strong>{info.serverName}</strong> has been updated.
-            You can now log in to the game.
+            {isCreate ? (
+              <>Your account <strong>{username.trim()}</strong> on <strong>{info.serverName}</strong> is ready. You can now log in to the game.</>
+            ) : (
+              <>Your password for <strong>{info.username}</strong> on <strong>{info.serverName}</strong> has been updated. You can now log in to the game.</>
+            )}
           </div>
         ) : (
           <form className="form-grid" onSubmit={submit}>
             <p className="muted">
-              Set a new password for <strong>{info.username}</strong> on <strong>{info.serverName}</strong>.
+              {isCreate
+                ? <>Choose a username and password for your new account on <strong>{info.serverName}</strong>.</>
+                : <>Set a new password for <strong>{info.username}</strong> on <strong>{info.serverName}</strong>.</>}
             </p>
+            {isCreate && (
+              <label>
+                Username
+                <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+              </label>
+            )}
             <label>
-              New password
+              {isCreate ? 'Password' : 'New password'}
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={6}
                 maxLength={32}
-                autoFocus
+                autoFocus={!isCreate}
                 required
               />
             </label>
@@ -75,7 +93,9 @@ export default function WowPasswordReset({ token }: { token: string }) {
               <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
             </label>
             {error && <div className="alert alert-error">{error}</div>}
-            <button className="btn btn-primary" disabled={busy}>{busy ? 'Working…' : 'Set password'}</button>
+            <button className="btn btn-primary" disabled={busy}>
+              {busy ? 'Working…' : isCreate ? 'Create account' : 'Set password'}
+            </button>
           </form>
         )}
       </div>

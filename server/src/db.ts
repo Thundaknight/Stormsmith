@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
 import type {
-  CustomField, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission, User, WowPasswordReset,
+  CustomField, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission, User, WowAccountLink,
 } from './types';
 
 export const db = new Database(config.dbFile);
@@ -115,7 +115,9 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS wow_password_resets (
       token TEXT PRIMARY KEY,
       server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-      username TEXT NOT NULL,
+      purpose TEXT NOT NULL DEFAULT 'reset',
+      username TEXT NOT NULL DEFAULT '',
+      gm_level INTEGER NOT NULL DEFAULT 0,
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -171,6 +173,8 @@ export function initDb(): void {
   addColumnTo('discord_config', 'oauth_restrict_to_guild', 'oauth_restrict_to_guild INTEGER NOT NULL DEFAULT 1');
   addColumnTo('server_permissions', 'can_configure', 'can_configure INTEGER NOT NULL DEFAULT 0');
   addColumnTo('discord_role_perms', 'can_create_wow_accounts', 'can_create_wow_accounts INTEGER NOT NULL DEFAULT 0');
+  addColumnTo('wow_password_resets', 'purpose', "purpose TEXT NOT NULL DEFAULT 'reset'");
+  addColumnTo('wow_password_resets', 'gm_level', 'gm_level INTEGER NOT NULL DEFAULT 0');
 
   // Broadcasts now use the NBSP trick instead of underscores (spaces render properly in-game)
   db.prepare(
@@ -461,29 +465,39 @@ export function updateDiscordConfig(fields: Partial<DiscordConfig>): void {
   db.prepare(`UPDATE discord_config SET ${sets} WHERE id = 1`).run(...keys.map((k) => fields[k]));
 }
 
-// ---- WoW (AzerothCore) password reset links ----
+// ---- WoW (AzerothCore) account links — creating a new account or resetting a password,
+// both via a one-time public link instead of an admin typing it for the player ----
 
-export function sweepExpiredWowPasswordResets(): void {
+export function sweepExpiredWowAccountLinks(): void {
   db.prepare('DELETE FROM wow_password_resets WHERE expires_at < ?').run(Date.now());
 }
 
-export function createWowPasswordReset(r: {
-  token: string; server_id: number; username: string; created_by: number; expires_at: number;
+export function createWowAccountLink(r: {
+  token: string; server_id: number; purpose: string; username: string; gm_level: number;
+  created_by: number; expires_at: number;
 }): void {
-  sweepExpiredWowPasswordResets();
+  sweepExpiredWowAccountLinks();
   db.prepare(
-    `INSERT INTO wow_password_resets (token, server_id, username, created_by, expires_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(r.token, r.server_id, r.username, r.created_by, r.expires_at);
+    `INSERT INTO wow_password_resets (token, server_id, purpose, username, gm_level, created_by, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(r.token, r.server_id, r.purpose, r.username, r.gm_level, r.created_by, r.expires_at);
 }
 
-export function getWowPasswordReset(token: string): WowPasswordReset | undefined {
+/** All non-expired links for a server (both purposes), for the "generated links" list. */
+export function listWowAccountLinks(serverId: number): WowAccountLink[] {
+  sweepExpiredWowAccountLinks();
+  return db
+    .prepare('SELECT * FROM wow_password_resets WHERE server_id = ? ORDER BY created_at DESC')
+    .all(serverId) as WowAccountLink[];
+}
+
+export function getWowAccountLink(token: string): WowAccountLink | undefined {
   return db
     .prepare('SELECT * FROM wow_password_resets WHERE token = ? AND expires_at > ?')
-    .get(token, Date.now()) as WowPasswordReset | undefined;
+    .get(token, Date.now()) as WowAccountLink | undefined;
 }
 
-export function deleteWowPasswordReset(token: string): void {
+export function deleteWowAccountLink(token: string): void {
   db.prepare('DELETE FROM wow_password_resets WHERE token = ?').run(token);
 }
 

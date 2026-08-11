@@ -27,6 +27,16 @@ export function hasDbConfig(server: GameServer): boolean {
   return !!(server.db_host && server.db_port && server.db_user && server.db_characters_db && server.db_auth_db);
 }
 
+async function connect(server: GameServer) {
+  return mysql.createConnection({
+    host: server.db_host,
+    port: server.db_port,
+    user: server.db_user,
+    password: server.db_password,
+    connectTimeout: 5000,
+  });
+}
+
 /** "Fruitpunch 32 Undead Rogue" per online character, e.g. for the Discord embed and web player chips. */
 export async function fetchAzerothPlayers(server: GameServer): Promise<string[]> {
   if (!hasDbConfig(server)) {
@@ -38,13 +48,7 @@ export async function fetchAzerothPlayers(server: GameServer): Promise<string[]>
     throw new Error('Database names must contain only letters, numbers, and underscores');
   }
 
-  const conn = await mysql.createConnection({
-    host: server.db_host,
-    port: server.db_port,
-    user: server.db_user,
-    password: server.db_password,
-    connectTimeout: 5000,
-  });
+  const conn = await connect(server);
   try {
     const prefix = server.bot_account_prefix || 'rndbot';
     const [rows] = await conn.query(
@@ -81,13 +85,7 @@ export async function fetchAzerothAccounts(server: GameServer): Promise<AzerothA
     throw new Error('Database names must contain only letters, numbers, and underscores');
   }
 
-  const conn = await mysql.createConnection({
-    host: server.db_host,
-    port: server.db_port,
-    user: server.db_user,
-    password: server.db_password,
-    connectTimeout: 5000,
-  });
+  const conn = await connect(server);
   try {
     const prefix = server.bot_account_prefix || 'rndbot';
     const [rows] = await conn.query(
@@ -98,6 +96,47 @@ export async function fetchAzerothAccounts(server: GameServer): Promise<AzerothA
       username: r.username,
       online: !!r.online,
       lastLogin: r.last_login ? new Date(r.last_login).toISOString() : null,
+    }));
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}
+
+export interface AzerothCharacter {
+  name: string;
+  level: number;
+  race: string;
+  class: string;
+  online: boolean;
+}
+
+/** The characters on one login account — e.g. for a "Characters" expander in the User Management tab. */
+export async function fetchAzerothCharacters(server: GameServer, username: string): Promise<AzerothCharacter[]> {
+  if (!hasDbConfig(server)) {
+    throw new Error('Database connection is not configured for this server');
+  }
+  const charactersDb = server.db_characters_db;
+  const authDb = server.db_auth_db;
+  if (!IDENTIFIER_RE.test(charactersDb) || !IDENTIFIER_RE.test(authDb)) {
+    throw new Error('Database names must contain only letters, numbers, and underscores');
+  }
+
+  const conn = await connect(server);
+  try {
+    const [rows] = await conn.query(
+      `SELECT c.name AS name, c.level AS level, c.race AS race, c.class AS class, c.online AS online
+       FROM \`${charactersDb}\`.characters c
+       JOIN \`${authDb}\`.account a ON c.account = a.id
+       WHERE a.username = ?
+       ORDER BY c.level DESC, c.name`,
+      [username]
+    );
+    return (rows as Array<{ name: string; level: number; race: number; class: number; online: number }>).map((r) => ({
+      name: r.name,
+      level: r.level,
+      race: RACE_NAMES[r.race] || 'Unknown',
+      class: CLASS_NAMES[r.class] || 'Unknown',
+      online: !!r.online,
     }));
   } finally {
     await conn.end().catch(() => {});
