@@ -46,3 +46,42 @@ export async function fetchAzerothPlayers(server: GameServer): Promise<string[]>
     await conn.end().catch(() => {});
   }
 }
+
+export interface AzerothAccount {
+  username: string;
+  online: boolean;
+  lastLogin: string | null;
+}
+
+/** Login accounts from the auth database, excluding mod-playerbots' bot accounts. Used for the User Management tab. */
+export async function fetchAzerothAccounts(server: GameServer): Promise<AzerothAccount[]> {
+  if (!hasDbConfig(server)) {
+    throw new Error('Database connection is not configured for this server');
+  }
+  const authDb = server.db_auth_db;
+  if (!IDENTIFIER_RE.test(authDb)) {
+    throw new Error('Database names must contain only letters, numbers, and underscores');
+  }
+
+  const conn = await mysql.createConnection({
+    host: server.db_host,
+    port: server.db_port,
+    user: server.db_user,
+    password: server.db_password,
+    connectTimeout: 5000,
+  });
+  try {
+    const prefix = server.bot_account_prefix || 'rndbot';
+    const [rows] = await conn.query(
+      `SELECT username, online, last_login FROM \`${authDb}\`.account WHERE username NOT LIKE ? ORDER BY username`,
+      [`${prefix}%`]
+    );
+    return (rows as Array<{ username: string; online: number; last_login: Date | null }>).map((r) => ({
+      username: r.username,
+      online: !!r.online,
+      lastLogin: r.last_login ? new Date(r.last_login).toISOString() : null,
+    }));
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}

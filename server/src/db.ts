@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
-import type { CustomField, DiscordConfig, DiscordRolePerm, GameServer, ServerPermission, User } from './types';
+import type {
+  CustomField, DiscordConfig, DiscordRolePerm, GameServer, ServerPermission, User, WowPasswordReset,
+} from './types';
 
 export const db = new Database(config.dbFile);
 db.pragma('journal_mode = WAL');
@@ -109,6 +111,15 @@ export function initDb(): void {
     );
 
     INSERT OR IGNORE INTO discord_config (id) VALUES (1);
+
+    CREATE TABLE IF NOT EXISTS wow_password_resets (
+      token TEXT PRIMARY KEY,
+      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migrations for databases created before these columns existed
@@ -439,4 +450,30 @@ export function updateDiscordConfig(fields: Partial<DiscordConfig>): void {
   if (keys.length === 0) return;
   const sets = keys.map((k) => `${k} = ?`).join(', ');
   db.prepare(`UPDATE discord_config SET ${sets} WHERE id = 1`).run(...keys.map((k) => fields[k]));
+}
+
+// ---- WoW (AzerothCore) password reset links ----
+
+export function sweepExpiredWowPasswordResets(): void {
+  db.prepare('DELETE FROM wow_password_resets WHERE expires_at < ?').run(Date.now());
+}
+
+export function createWowPasswordReset(r: {
+  token: string; server_id: number; username: string; created_by: number; expires_at: number;
+}): void {
+  sweepExpiredWowPasswordResets();
+  db.prepare(
+    `INSERT INTO wow_password_resets (token, server_id, username, created_by, expires_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(r.token, r.server_id, r.username, r.created_by, r.expires_at);
+}
+
+export function getWowPasswordReset(token: string): WowPasswordReset | undefined {
+  return db
+    .prepare('SELECT * FROM wow_password_resets WHERE token = ? AND expires_at > ?')
+    .get(token, Date.now()) as WowPasswordReset | undefined;
+}
+
+export function deleteWowPasswordReset(token: string): void {
+  db.prepare('DELETE FROM wow_password_resets WHERE token = ?').run(token);
 }

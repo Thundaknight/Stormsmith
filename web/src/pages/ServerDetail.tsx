@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import AzerothAccounts from '../components/AzerothAccounts';
+import AzerothPlayerList from '../components/AzerothPlayerList';
 import CopyButton from '../components/CopyButton';
 import CustomFields from '../components/CustomFields';
 import ModsPanel from '../components/ModsPanel';
@@ -21,7 +22,7 @@ interface ConsoleLine {
   text: string;
 }
 
-type Tab = 'controls' | 'config' | 'mods' | 'settings';
+type Tab = 'controls' | 'accounts' | 'config' | 'mods' | 'settings';
 
 export default function ServerDetail() {
   const { id } = useParams();
@@ -225,6 +226,7 @@ export default function ServerDetail() {
 
   const canConfigure = isAdmin || server.can_configure;
   const tabs: Array<{ id: Tab; label: string }> = [{ id: 'controls', label: 'Controls' }];
+  if (server.game === 'azerothcore') tabs.push({ id: 'accounts', label: 'User Management' });
   if (canConfigure && server.game === 'palworld') {
     tabs.push({ id: 'config', label: 'Server Config' });
     tabs.push({ id: 'mods', label: 'Mods' });
@@ -396,8 +398,6 @@ export default function ServerDetail() {
                 </form>
               </div>
 
-              {server.game === 'azerothcore' && <AzerothAccounts serverId={server.id} />}
-
               <div className="card">
                 <h2>In-game Message</h2>
                 <form className="inline-form" onSubmit={broadcast}>
@@ -419,6 +419,19 @@ export default function ServerDetail() {
             </div>
           )}
         </>
+      )}
+
+      {tab === 'accounts' && server.game === 'azerothcore' && (
+        server.can_rcon ? (
+          <>
+            <AzerothPlayerList serverId={server.id} dbConfigured={server.db_configured} />
+            <AzerothAccounts serverId={server.id} dbConfigured={server.db_configured} />
+          </>
+        ) : (
+          <div className="card empty-state">
+            <p className="muted">You have view-only access to this server.</p>
+          </div>
+        )
       )}
 
       {tab === 'config' && canConfigure && server.game === 'palworld' && (

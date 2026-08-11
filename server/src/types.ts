@@ -129,6 +129,15 @@ export interface DiscordConfig {
   oauth_restrict_to_guild: number;
 }
 
+export interface WowPasswordReset {
+  token: string;
+  server_id: number;
+  username: string;
+  created_by: number;
+  expires_at: number;
+  created_at: string;
+}
+
 export interface AuthTokenPayload {
   userId: number;
   username: string;

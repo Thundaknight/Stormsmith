@@ -1,7 +1,9 @@
+import crypto from 'crypto';
 import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
-  createServer, deleteServer, getServerById, listCustomFields, listServers, setCustomFields, updateServer,
+  createServer, createWowPasswordReset, deleteServer, getServerById, listCustomFields, listServers,
+  setCustomFields, updateServer,
 } from '../db';
 import { resolveDisplayAddress } from '../address';
 import {
@@ -9,7 +11,7 @@ import {
   putContainerFile, readContainerFile, writeContainerFile,
 } from '../docker';
 import { discordBot } from '../discord/bot';
-import { hasDbConfig } from '../games/azerothcore';
+import { fetchAzerothAccounts, hasDbConfig } from '../games/azerothcore';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
@@ -17,6 +19,8 @@ import { sendBroadcast, sendRconCommand } from '../rcon';
 import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
 import type { GameServer, ServerAction } from '../types';
 import { asyncRoute } from './helpers';
+
+const WOW_RESET_TTL_MS = 24 * 60 * 60 * 1000;
 
 const router = Router();
 router.use(requireAuth);
@@ -316,6 +320,45 @@ router.post('/:id/broadcast', requireServerPermission('rcon'), asyncRoute(async 
   const response = await sendBroadcast(server, message);
   res.json({ response });
 }));
+
+// ---- AzerothCore player accounts ----
+
+/** Real player accounts (bots excluded) from the optional player database connection. */
+router.get('/:id/wow-accounts', requireServerPermission('rcon'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server || server.game !== 'azerothcore') {
+    res.status(400).json({ error: 'Not an AzerothCore server' });
+    return;
+  }
+  if (!hasDbConfig(server)) {
+    res.status(400).json({ error: 'Player database is not configured for this server — set it in the Settings tab.' });
+    return;
+  }
+  const accounts = await fetchAzerothAccounts(server);
+  res.json({ accounts });
+}));
+
+/**
+ * Generates a one-time, publicly-accessible link a player can use to set
+ * their own password, instead of an admin typing it for them. Expires after
+ * 24 hours or as soon as it's used — whichever comes first.
+ */
+router.post('/:id/wow-accounts/reset-link', requireServerPermission('rcon'), (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server || server.game !== 'azerothcore') {
+    res.status(400).json({ error: 'Not an AzerothCore server' });
+    return;
+  }
+  const username = String(req.body?.username || '').trim();
+  if (!username) {
+    res.status(400).json({ error: 'Username is required' });
+    return;
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + WOW_RESET_TTL_MS;
+  createWowPasswordReset({ token, server_id: server.id, username, created_by: req.user!.userId, expires_at: expiresAt });
+  res.json({ token, expiresAt: new Date(expiresAt).toISOString() });
+});
 
 // Known PalWorldSettings.ini locations across popular Palworld Docker images
 const PALWORLD_CONFIG_CANDIDATES = [

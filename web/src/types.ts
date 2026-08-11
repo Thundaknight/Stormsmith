@@ -113,6 +113,12 @@ export interface CustomField {
   content: string;
 }
 
+export interface WowAccount {
+  username: string;
+  online: boolean;
+  lastLogin: string | null;
+}
+
 export interface ModEntry {
   name: string;
   size: number;

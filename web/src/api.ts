@@ -1,6 +1,6 @@
 import type {
   Account, ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, ModEntry, Permission,
-  ServerAction, User,
+  ServerAction, User, WowAccount,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -82,6 +82,15 @@ export const api = {
   saveServerConfig: (id: number, settings: Record<string, string>) =>
     request<{ ok: boolean; path: string; restartRequired: boolean }>(
       'PUT', `/api/servers/${id}/config`, { settings }),
+
+  // AzerothCore player accounts
+  listWowAccounts: (id: number) => request<{ accounts: WowAccount[] }>('GET', `/api/servers/${id}/wow-accounts`),
+  createWowResetLink: (id: number, username: string) =>
+    request<{ token: string; expiresAt: string }>('POST', `/api/servers/${id}/wow-accounts/reset-link`, { username }),
+  getWowResetInfo: (token: string) =>
+    request<{ username: string; serverName: string }>('GET', `/api/wow-reset/${token}`),
+  submitWowReset: (token: string, password: string) =>
+    request<{ ok: boolean }>('POST', `/api/wow-reset/${token}`, { password }),
 
   // mods
   listMods: (id: number, folder: string) =>

@@ -3,7 +3,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { config } from './config';
-import { initDb } from './db';
+import { initDb, sweepExpiredWowPasswordResets } from './db';
 import { monitor } from './monitor';
 import { initPublicIp } from './publicIp';
 import { startScheduler } from './scheduler';
@@ -13,6 +13,7 @@ import authRoutes from './routes/auth';
 import serverRoutes from './routes/servers';
 import userRoutes from './routes/users';
 import discordRoutes from './routes/discord';
+import wowResetRoutes from './routes/wowReset';
 
 initDb();
 
@@ -24,6 +25,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/servers', serverRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/discord', discordRoutes);
+app.use('/api/wow-reset', wowResetRoutes);
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -40,6 +42,7 @@ monitor.start();
 initPublicIp();
 startScheduler();
 discordBot.start().catch((err) => console.error('[discord] startup error:', err));
+setInterval(sweepExpiredWowPasswordResets, 60 * 60_000).unref();
 
 httpServer.listen(config.port, () => {
   console.log(`Stormsmith listening on port ${config.port}`);
