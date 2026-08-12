@@ -174,3 +174,36 @@ export async function isAzerothBotCharacter(server: GameServer, characterName: s
     await conn.end().catch(() => {});
   }
 }
+
+/**
+ * A bot character's current level, or null if the name isn't a bot on this
+ * server (or doesn't exist) — used by /wowlevel, which has to step a bot up
+ * one level at a time (AzerothCore has no "set to level N" console command)
+ * and needs to know how many steps that is.
+ */
+export async function getAzerothBotCharacterLevel(server: GameServer, characterName: string): Promise<number | null> {
+  if (!hasDbConfig(server)) {
+    throw new Error('Database connection is not configured for this server');
+  }
+  const charactersDb = server.db_characters_db;
+  const authDb = server.db_auth_db;
+  if (!IDENTIFIER_RE.test(charactersDb) || !IDENTIFIER_RE.test(authDb)) {
+    throw new Error('Database names must contain only letters, numbers, and underscores');
+  }
+
+  const conn = await connect(server);
+  try {
+    const prefix = server.bot_account_prefix || 'rndbot';
+    const [rows] = await conn.query(
+      `SELECT c.level AS level FROM \`${charactersDb}\`.characters c
+       JOIN \`${authDb}\`.account a ON c.account = a.id
+       WHERE c.name = ? AND a.username LIKE ?
+       LIMIT 1`,
+      [characterName, `${prefix}%`]
+    );
+    const row = (rows as Array<{ level: number }>)[0];
+    return row ? row.level : null;
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}

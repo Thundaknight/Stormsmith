@@ -10,7 +10,7 @@ import {
   listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, logDiscordCommand, setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
-import { hasDbConfig, isAzerothBotCharacter } from '../games/azerothcore';
+import { getAzerothBotCharacterLevel, hasDbConfig, isAzerothBotCharacter } from '../games/azerothcore';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
@@ -30,13 +30,22 @@ const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   wowBotManage: 'can_manage_wow_bots',
 };
 
-/** AzerothCore commands invocable on mod-playerbots' AI bots specifically, keyed by Discord command name. */
+const WOW_BOT_COMMAND_NAMES = new Set(['wowlevel', 'wowgear', 'wowrestock']);
+
+/**
+ * AzerothCore commands invocable on mod-playerbots' AI bots specifically, keyed by Discord
+ * command name. /wowlevel is handled separately (see handleCommand) since it needs a target
+ * level and a loop of increments, not a single fixed command.
+ *
+ * /wowgear and /wowrestock both resolve to the same `refresh` console command — AzerothCore
+ * has no narrower one. `PlayerbotFactory::Refresh()` (what `refresh` runs) already covers both
+ * gearing (repair, re-equip, enchants) and restocking (ammo, food, reagents, consumables,
+ * potions) in one pass; the in-game "autogear" and "maintenance" whisper commands split those
+ * apart, but both are chat-only and cannot be invoked over SOAP/console at all.
+ */
 const WOW_BOT_COMMANDS: Record<string, { soapCmd: (name: string) => string; label: string }> = {
-  wowlevel: { soapCmd: (name) => `.playerbots rndbot level ${name}`, label: 'Level-up' },
-  // AzerothCore has no console command that upgrades a bot's gear quality like the in-game
-  // "autogear" whisper does — `refresh` is the closest console-invocable equivalent (repairs
-  // and re-equips at the bot's current level).
   wowgear: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Gear refresh' },
+  wowrestock: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Restock' },
 };
 
 /** Account names go straight into a SOAP GM command, so keep them to a safe, unambiguous charset. */
@@ -216,10 +225,18 @@ class DiscordBot {
         .setName('wowlevel')
         .setDescription('Level up an AI bot character on an AzerothCore server (bots only, not players)')
         .addStringOption(serverOption)
-        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
+        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true))
+        .addIntegerOption((o) =>
+          o.setName('level').setDescription('Target level').setRequired(true).setMinValue(1).setMaxValue(100)
+        ),
       new SlashCommandBuilder()
         .setName('wowgear')
         .setDescription('Re-gear an AI bot character on an AzerothCore server (bots only, not players)')
+        .addStringOption(serverOption)
+        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
+      new SlashCommandBuilder()
+        .setName('wowrestock')
+        .setDescription('Restock ammo/food/reagents/consumables for an AI bot (bots only, not players)')
         .addStringOption(serverOption)
         .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
     ].map((c) => c.toJSON());
@@ -405,7 +422,7 @@ class DiscordBot {
     return allowed.length === 0 || allowed.includes(channelId);
   }
 
-  /** Extra restriction layered on top of channelAllowed(), just for /wowlevel and /wowgear. */
+  /** Standalone channel restriction for /wowlevel, /wowgear, /wowrestock — overrides channelAllowed() for these when set. */
   private wowBotChannelAllowed(channelId: string): boolean {
     const allowed = parseIds(this.cfg!.wow_bot_channel_ids);
     return allowed.length === 0 || allowed.includes(channelId);
@@ -431,7 +448,7 @@ class DiscordBot {
   private async handleInteraction(interaction: Interaction): Promise<void> {
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused().toLowerCase();
-      const azerothOnly = ['wowcreate', 'wowlevel', 'wowgear'].includes(interaction.commandName);
+      const azerothOnly = interaction.commandName === 'wowcreate' || WOW_BOT_COMMAND_NAMES.has(interaction.commandName);
       const servers = listServers()
         .filter((s) => s.name.toLowerCase().includes(focused))
         .filter((s) => !azerothOnly || s.game === 'azerothcore')
@@ -606,7 +623,12 @@ class DiscordBot {
 
   private async handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
     const cfg = this.cfg!;
-    if (!this.channelAllowed(interaction.channelId)) {
+    // When AI-bot command channels are configured, they're authoritative for these commands —
+    // not an additional layer on top of the general command-channel restriction — so a channel
+    // picked here works even if it isn't also in the general list.
+    const hasWowBotChannelOverride =
+      WOW_BOT_COMMAND_NAMES.has(interaction.commandName) && parseIds(cfg.wow_bot_channel_ids).length > 0;
+    if (!hasWowBotChannelOverride && !this.channelAllowed(interaction.channelId)) {
       await interaction.reply({ content: '⛔ Bot commands are not allowed in this channel.', ephemeral: true });
       return;
     }
@@ -724,7 +746,7 @@ class DiscordBot {
       return;
     }
 
-    if (interaction.commandName === 'wowlevel' || interaction.commandName === 'wowgear') {
+    if (WOW_BOT_COMMAND_NAMES.has(interaction.commandName)) {
       const character = interaction.options.getString('character', true).trim();
       const log = (result: string, detail: string) =>
         logDiscordCommand({
@@ -756,6 +778,47 @@ class DiscordBot {
         log('db_not_configured', '');
         return;
       }
+
+      if (interaction.commandName === 'wowlevel') {
+        const targetLevel = interaction.options.getInteger('level', true);
+        await interaction.deferReply({ ephemeral: true });
+        try {
+          const currentLevel = await getAzerothBotCharacterLevel(server, character);
+          if (currentLevel === null) {
+            await interaction.editReply(
+              `⛔ **${character}** is not an AI bot character on **${server.name}** (or doesn't exist) — this only works on mod-playerbots AI bots, not real players.`
+            );
+            log('not_bot', '');
+            return;
+          }
+          if (targetLevel <= currentLevel) {
+            await interaction.editReply(
+              `⛔ **${character}** is already level ${currentLevel} — AzerothCore has no console command to lower a bot's level, only raise it.`
+            );
+            log('invalid_target', `current=${currentLevel} target=${targetLevel}`);
+            return;
+          }
+          // AzerothCore's rndbot "level" command only ever raises a bot by exactly one level per
+          // call — there's no "set to level N" command — so reaching a target means calling it
+          // once per level.
+          const steps = targetLevel - currentLevel;
+          let completed = 0;
+          for (; completed < steps; completed++) {
+            await sendRconCommand(server, `.playerbots rndbot level ${character}`);
+          }
+          await interaction.editReply(
+            `✅ Sent ${completed} level-up step${completed === 1 ? '' : 's'} for **${character}** on **${server.name}** ` +
+            `(${currentLevel} → ${targetLevel}). AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
+          );
+          log('success', `current=${currentLevel} target=${targetLevel} steps=${completed}`);
+        } catch (err: any) {
+          const message = err?.message || String(err);
+          await interaction.editReply(`❌ Failed: ${message}`);
+          log('error', message);
+        }
+        return;
+      }
+
       const { soapCmd, label } = WOW_BOT_COMMANDS[interaction.commandName];
       await interaction.deferReply({ ephemeral: true });
       try {
@@ -768,8 +831,12 @@ class DiscordBot {
           return;
         }
         await sendRconCommand(server, soapCmd(character));
+        const note =
+          interaction.commandName === 'wowrestock'
+            ? ' (AzerothCore has no separate restock command — this runs the same refresh action as /wowgear, which restocks ammo/food/reagents/consumables/potions alongside gear.)'
+            : '';
         await interaction.editReply(
-          `✅ ${label} command sent for **${character}** on **${server.name}**. AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
+          `✅ ${label} command sent for **${character}** on **${server.name}**.${note} AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
         );
         log('success', '');
       } catch (err: any) {

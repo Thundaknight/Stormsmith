@@ -330,8 +330,8 @@ export default function DiscordSettings() {
         <div className="card">
           <h2>AI bot command channels</h2>
           <MultiPicker
-            label="Channels where /wowlevel and /wowgear are allowed"
-            hint="Further restricts just these two commands, on top of the command channels above — e.g. limit them to a bot-admin channel. Leave empty to allow them anywhere commands are allowed."
+            label="Channels where /wowlevel, /wowgear, and /wowrestock are allowed"
+            hint="If set, these channels are the only place these three commands work, regardless of the command channels above — e.g. a bot-admin channel that isn't in the general list. Leave empty to use the command channels restriction above instead."
             options={channels} selected={wowBotChannels} onChange={setWowBotChannels}
           />
         </div>

@@ -9,6 +9,7 @@ const RESULT_LABELS: Record<string, string> = {
   not_azerothcore: 'Not AzerothCore',
   db_not_configured: 'DB not configured',
   not_bot: 'Not a bot',
+  invalid_target: 'Invalid target level',
   error: 'Error',
 };
 
