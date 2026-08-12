@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
 import type {
-  CustomField, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission, User, WowAccountLink,
+  CustomField, DiscordCommandLogEntry, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission,
+  User, WowAccountLink,
 } from './types';
 
 export const db = new Database(config.dbFile);
@@ -98,6 +99,7 @@ export function initDb(): void {
       control_role_ids TEXT NOT NULL DEFAULT '[]',
       rcon_role_ids TEXT NOT NULL DEFAULT '[]',
       command_channel_ids TEXT NOT NULL DEFAULT '[]',
+      wow_bot_channel_ids TEXT NOT NULL DEFAULT '[]',
       allow_start INTEGER NOT NULL DEFAULT 1,
       allow_stop INTEGER NOT NULL DEFAULT 1,
       allow_restart INTEGER NOT NULL DEFAULT 1,
@@ -112,6 +114,18 @@ export function initDb(): void {
     );
 
     INSERT OR IGNORE INTO discord_config (id) VALUES (1);
+
+    CREATE TABLE IF NOT EXISTS discord_command_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      command TEXT NOT NULL,
+      server_id INTEGER REFERENCES servers(id) ON DELETE SET NULL,
+      discord_user_id TEXT NOT NULL,
+      discord_username TEXT NOT NULL DEFAULT '',
+      character_name TEXT NOT NULL DEFAULT '',
+      result TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
     CREATE TABLE IF NOT EXISTS wow_password_resets (
       token TEXT PRIMARY KEY,
@@ -172,6 +186,7 @@ export function initDb(): void {
   addColumnTo('discord_config', 'oauth_client_secret', "oauth_client_secret TEXT NOT NULL DEFAULT ''");
   addColumnTo('discord_config', 'oauth_redirect_uri', "oauth_redirect_uri TEXT NOT NULL DEFAULT ''");
   addColumnTo('discord_config', 'oauth_restrict_to_guild', 'oauth_restrict_to_guild INTEGER NOT NULL DEFAULT 1');
+  addColumnTo('discord_config', 'wow_bot_channel_ids', "wow_bot_channel_ids TEXT NOT NULL DEFAULT '[]'");
   addColumnTo('server_permissions', 'can_configure', 'can_configure INTEGER NOT NULL DEFAULT 0');
   addColumnTo('discord_role_perms', 'can_create_wow_accounts', 'can_create_wow_accounts INTEGER NOT NULL DEFAULT 0');
   addColumnTo('discord_role_perms', 'can_manage_wow_bots', 'can_manage_wow_bots INTEGER NOT NULL DEFAULT 0');
@@ -457,7 +472,7 @@ export function getDiscordConfig(): DiscordConfig {
 export function updateDiscordConfig(fields: Partial<DiscordConfig>): void {
   const allowed: Array<keyof DiscordConfig> = [
     'enabled', 'bot_token', 'guild_id', 'status_channel_id', 'status_message_id',
-    'control_role_ids', 'rcon_role_ids', 'command_channel_ids',
+    'control_role_ids', 'rcon_role_ids', 'command_channel_ids', 'wow_bot_channel_ids',
     'allow_start', 'allow_stop', 'allow_restart', 'allow_rcon', 'allow_broadcast',
     'rcon_command_allowlist',
     'oauth_enabled', 'oauth_client_id', 'oauth_client_secret', 'oauth_redirect_uri', 'oauth_restrict_to_guild',
@@ -466,6 +481,36 @@ export function updateDiscordConfig(fields: Partial<DiscordConfig>): void {
   if (keys.length === 0) return;
   const sets = keys.map((k) => `${k} = ?`).join(', ');
   db.prepare(`UPDATE discord_config SET ${sets} WHERE id = 1`).run(...keys.map((k) => fields[k]));
+}
+
+// ---- Discord command log (audit trail for sensitive bot commands) ----
+
+const COMMAND_LOG_MAX_ROWS = 2000;
+
+export function logDiscordCommand(entry: {
+  command: string; server_id: number | null; discord_user_id: string; discord_username: string;
+  character_name: string; result: string; detail: string;
+}): void {
+  db.prepare(
+    `INSERT INTO discord_command_log
+     (command, server_id, discord_user_id, discord_username, character_name, result, detail)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    entry.command, entry.server_id, entry.discord_user_id, entry.discord_username,
+    entry.character_name, entry.result, entry.detail
+  );
+  // Bound growth on a long-running server — this is an audit trail, not permanent history.
+  db.prepare(
+    `DELETE FROM discord_command_log WHERE id NOT IN (
+       SELECT id FROM discord_command_log ORDER BY id DESC LIMIT ?
+     )`
+  ).run(COMMAND_LOG_MAX_ROWS);
+}
+
+export function listDiscordCommandLog(limit = 200): DiscordCommandLogEntry[] {
+  return db
+    .prepare('SELECT * FROM discord_command_log ORDER BY id DESC LIMIT ?')
+    .all(limit) as DiscordCommandLogEntry[];
 }
 
 // ---- WoW (AzerothCore) account links — creating a new account or resetting a password,

@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { requireAdmin, requireAuth } from '../auth';
-import { getDiscordConfig, listDiscordRolePerms, setDiscordRolePerms, updateDiscordConfig } from '../db';
+import {
+  getDiscordConfig, getServerById, listDiscordCommandLog, listDiscordRolePerms, setDiscordRolePerms,
+  updateDiscordConfig,
+} from '../db';
 import { discordBot } from '../discord/bot';
 import { asyncRoute } from './helpers';
 
@@ -37,6 +40,7 @@ router.put('/config', asyncRoute(async (req, res) => {
     control_role_ids: b.control_role_ids !== undefined ? jsonArray(b.control_role_ids) : undefined,
     rcon_role_ids: b.rcon_role_ids !== undefined ? jsonArray(b.rcon_role_ids) : undefined,
     command_channel_ids: b.command_channel_ids !== undefined ? jsonArray(b.command_channel_ids) : undefined,
+    wow_bot_channel_ids: b.wow_bot_channel_ids !== undefined ? jsonArray(b.wow_bot_channel_ids) : undefined,
     allow_start: b.allow_start !== undefined ? (b.allow_start ? 1 : 0) : undefined,
     allow_stop: b.allow_stop !== undefined ? (b.allow_stop ? 1 : 0) : undefined,
     allow_restart: b.allow_restart !== undefined ? (b.allow_restart ? 1 : 0) : undefined,
@@ -99,6 +103,28 @@ router.put('/roles', (req, res) => {
       }))
   );
   res.json({ roles: listDiscordRolePerms() });
+});
+
+/** Audit trail for sensitive bot commands (currently /wowlevel and /wowgear). */
+router.get('/logs', (req, res) => {
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit || '200'), 10) || 200, 1), 2000);
+  const entries = listDiscordCommandLog(limit);
+  res.json({
+    entries: entries.map((e) => ({
+      id: e.id,
+      command: e.command,
+      serverId: e.server_id,
+      serverName: e.server_id ? getServerById(e.server_id)?.name ?? null : null,
+      discordUserId: e.discord_user_id,
+      discordUsername: e.discord_username,
+      characterName: e.character_name,
+      result: e.result,
+      detail: e.detail,
+      // SQLite's datetime('now') is UTC but has no 'T'/'Z', which Date.parse treats
+      // inconsistently across environments — make it unambiguous ISO-8601 here.
+      createdAt: new Date(`${e.created_at.replace(' ', 'T')}Z`).toISOString(),
+    })),
+  });
 });
 
 export default router;

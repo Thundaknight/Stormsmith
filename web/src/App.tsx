@@ -7,6 +7,7 @@ import DiscordSettings from './pages/DiscordSettings';
 import ImportServer from './pages/ImportServer';
 import InviteSignup from './pages/InviteSignup';
 import Login from './pages/Login';
+import Logs from './pages/Logs';
 import ServerDetail from './pages/ServerDetail';
 import Users from './pages/Users';
 import WowAccountLink from './pages/WowAccountLink';
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="/import" element={<ImportServer />} />
             <Route path="/users" element={<Users />} />
             <Route path="/discord" element={<DiscordSettings />} />
+            <Route path="/logs" element={<Logs />} />
           </>
         )}
         <Route path="*" element={<Navigate to="/" replace />} />

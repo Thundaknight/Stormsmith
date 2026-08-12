@@ -1,6 +1,6 @@
 import type {
-  Account, ContainerSummary, CustomField, DiscordConfigView, DiscordRolePerm, GameServer, InviteLink, ModEntry,
-  Permission, ServerAction, User, WowAccount, WowAccountLink, WowCharacter,
+  Account, ContainerSummary, CustomField, DiscordConfigView, DiscordLogEntry, DiscordRolePerm, GameServer,
+  InviteLink, ModEntry, Permission, ServerAction, User, WowAccount, WowAccountLink, WowCharacter,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -157,4 +157,5 @@ export const api = {
   getDiscordRoles: () => request<{ roles: DiscordRolePerm[] }>('GET', '/api/discord/roles'),
   setDiscordRoles: (roles: DiscordRolePerm[]) =>
     request<{ roles: DiscordRolePerm[] }>('PUT', '/api/discord/roles', { roles }),
+  listDiscordLogs: () => request<{ entries: DiscordLogEntry[] }>('GET', '/api/discord/logs'),
 };

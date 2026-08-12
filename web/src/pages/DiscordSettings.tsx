@@ -83,6 +83,7 @@ export default function DiscordSettings() {
   const [rolePerms, setRolePerms] = useState<DiscordRolePerm[]>([]);
   const [addRoleId, setAddRoleId] = useState('');
   const [commandChannels, setCommandChannels] = useState<string[]>([]);
+  const [wowBotChannels, setWowBotChannels] = useState<string[]>([]);
   const [allow, setAllow] = useState({ start: true, stop: true, restart: true, rcon: false, broadcast: true });
   const [rconAllowlist, setRconAllowlist] = useState('');
   const [oauthEnabled, setOauthEnabled] = useState(false);
@@ -98,6 +99,7 @@ export default function DiscordSettings() {
     setGuildId(c.guild_id);
     setStatusChannelId(c.status_channel_id);
     setCommandChannels(parseIds(c.command_channel_ids));
+    setWowBotChannels(parseIds(c.wow_bot_channel_ids));
     setAllow({
       start: !!c.allow_start,
       stop: !!c.allow_stop,
@@ -173,6 +175,7 @@ export default function DiscordSettings() {
         guild_id: guildId,
         status_channel_id: statusChannelId,
         command_channel_ids: commandChannels,
+        wow_bot_channel_ids: wowBotChannels,
         allow_start: allow.start,
         allow_stop: allow.stop,
         allow_restart: allow.restart,
@@ -321,6 +324,15 @@ export default function DiscordSettings() {
             label="Channels where commands are allowed"
             hint="Leave empty to allow slash commands in every channel."
             options={channels} selected={commandChannels} onChange={setCommandChannels}
+          />
+        </div>
+
+        <div className="card">
+          <h2>AI bot command channels</h2>
+          <MultiPicker
+            label="Channels where /wowlevel and /wowgear are allowed"
+            hint="Further restricts just these two commands, on top of the command channels above — e.g. limit them to a bot-admin channel. Leave empty to allow them anywhere commands are allowed."
+            options={channels} selected={wowBotChannels} onChange={setWowBotChannels}
           />
         </div>
 

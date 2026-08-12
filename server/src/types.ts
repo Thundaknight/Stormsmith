@@ -117,6 +117,7 @@ export interface DiscordConfig {
   control_role_ids: string; // JSON string[]
   rcon_role_ids: string; // JSON string[]
   command_channel_ids: string; // JSON string[]; empty = all channels
+  wow_bot_channel_ids: string; // JSON string[]; empty = all channels; further restricts /wowlevel and /wowgear
   allow_start: number;
   allow_stop: number;
   allow_restart: number;
@@ -128,6 +129,18 @@ export interface DiscordConfig {
   oauth_client_secret: string;
   oauth_redirect_uri: string;
   oauth_restrict_to_guild: number;
+}
+
+export interface DiscordCommandLogEntry {
+  id: number;
+  command: string;
+  server_id: number | null;
+  discord_user_id: string;
+  discord_username: string;
+  character_name: string;
+  result: string;
+  detail: string;
+  created_at: string;
 }
 
 export type WowAccountLinkPurpose = 'create' | 'reset';

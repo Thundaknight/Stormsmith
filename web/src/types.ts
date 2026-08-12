@@ -139,6 +139,19 @@ export interface WowAccountLink {
   createdAt: string;
 }
 
+export interface DiscordLogEntry {
+  id: number;
+  command: string;
+  serverId: number | null;
+  serverName: string | null;
+  discordUserId: string;
+  discordUsername: string;
+  characterName: string;
+  result: string;
+  detail: string;
+  createdAt: string;
+}
+
 export interface InviteLink {
   token: string;
   role: Role;
@@ -171,6 +184,7 @@ export interface DiscordConfigView {
   control_role_ids: string;
   rcon_role_ids: string;
   command_channel_ids: string;
+  wow_bot_channel_ids: string;
   allow_start: number;
   allow_stop: number;
   allow_restart: number;

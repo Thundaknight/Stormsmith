@@ -7,7 +7,7 @@ import {
 import { resolveDisplayAddress } from '../address';
 import {
   deleteStatusMessage, getDiscordConfig, getServerById, getStatusMessage,
-  listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, setStatusMessage,
+  listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, logDiscordCommand, setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
 import { hasDbConfig, isAzerothBotCharacter } from '../games/azerothcore';
@@ -405,6 +405,12 @@ class DiscordBot {
     return allowed.length === 0 || allowed.includes(channelId);
   }
 
+  /** Extra restriction layered on top of channelAllowed(), just for /wowlevel and /wowgear. */
+  private wowBotChannelAllowed(channelId: string): boolean {
+    const allowed = parseIds(this.cfg!.wow_bot_channel_ids);
+    return allowed.length === 0 || allowed.includes(channelId);
+  }
+
   private actionAllowed(action: ServerAction): boolean {
     const cfg = this.cfg!;
     if (action === 'start') return !!cfg.allow_start;
@@ -719,12 +725,27 @@ class DiscordBot {
     }
 
     if (interaction.commandName === 'wowlevel' || interaction.commandName === 'wowgear') {
+      const character = interaction.options.getString('character', true).trim();
+      const log = (result: string, detail: string) =>
+        logDiscordCommand({
+          command: interaction.commandName, server_id: server?.id ?? null,
+          discord_user_id: interaction.user.id, discord_username: interaction.user.tag,
+          character_name: character, result, detail,
+        });
+
       if (!this.memberCan(member, 'wowBotManage')) {
         await interaction.reply({ content: '⛔ You do not have permission to manage AI bots.', ephemeral: true });
+        log('denied_permission', '');
         return;
       }
       if (server.game !== 'azerothcore') {
         await interaction.reply({ content: '⛔ That server is not an AzerothCore server.', ephemeral: true });
+        log('not_azerothcore', '');
+        return;
+      }
+      if (!this.wowBotChannelAllowed(interaction.channelId)) {
+        await interaction.reply({ content: '⛔ This command is not allowed in this channel.', ephemeral: true });
+        log('denied_channel', '');
         return;
       }
       if (!hasDbConfig(server)) {
@@ -732,9 +753,9 @@ class DiscordBot {
           content: '⛔ The player database is not configured for this server, so bot characters can\'t be verified — set it in the Settings tab.',
           ephemeral: true,
         });
+        log('db_not_configured', '');
         return;
       }
-      const character = interaction.options.getString('character', true).trim();
       const { soapCmd, label } = WOW_BOT_COMMANDS[interaction.commandName];
       await interaction.deferReply({ ephemeral: true });
       try {
@@ -743,14 +764,18 @@ class DiscordBot {
           await interaction.editReply(
             `⛔ **${character}** is not an AI bot character on **${server.name}** (or doesn't exist) — this only works on mod-playerbots AI bots, not real players.`
           );
+          log('not_bot', '');
           return;
         }
         await sendRconCommand(server, soapCmd(character));
         await interaction.editReply(
           `✅ ${label} command sent for **${character}** on **${server.name}**. AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
         );
+        log('success', '');
       } catch (err: any) {
-        await interaction.editReply(`❌ Failed: ${err?.message || err}`);
+        const message = err?.message || String(err);
+        await interaction.editReply(`❌ Failed: ${message}`);
+        log('error', message);
       }
     }
   }
