@@ -68,6 +68,7 @@ export interface DiscordRolePerm {
   can_rcon: number;
   can_broadcast: number;
   can_create_wow_accounts: number;
+  can_manage_wow_bots: number;
 }
 
 export interface ServerPermission {

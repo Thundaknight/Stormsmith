@@ -10,13 +10,14 @@ import {
   listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
+import { hasDbConfig, isAzerothBotCharacter } from '../games/azerothcore';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
 import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
 import type { ContainerState, DiscordConfig, DiscordRolePerm, GameServer, ServerAction, ServerStatus } from '../types';
 
-type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast' | 'wowCreate';
+type DiscordPerm = 'commands' | 'start' | 'stop' | 'restart' | 'rcon' | 'broadcast' | 'wowCreate' | 'wowBotManage';
 
 const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   commands: 'can_use_commands',
@@ -26,6 +27,16 @@ const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   rcon: 'can_rcon',
   broadcast: 'can_broadcast',
   wowCreate: 'can_create_wow_accounts',
+  wowBotManage: 'can_manage_wow_bots',
+};
+
+/** AzerothCore commands invocable on mod-playerbots' AI bots specifically, keyed by Discord command name. */
+const WOW_BOT_COMMANDS: Record<string, { soapCmd: (name: string) => string; label: string }> = {
+  wowlevel: { soapCmd: (name) => `.playerbots rndbot level ${name}`, label: 'Level-up' },
+  // AzerothCore has no console command that upgrades a bot's gear quality like the in-game
+  // "autogear" whisper does — `refresh` is the closest console-invocable equivalent (repairs
+  // and re-equips at the bot's current level).
+  wowgear: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Gear refresh' },
 };
 
 /** Account names go straight into a SOAP GM command, so keep them to a safe, unambiguous charset. */
@@ -201,6 +212,16 @@ class DiscordBot {
         .setDescription('DM a Discord user to set up an AzerothCore WoW account')
         .addUserOption((o) => o.setName('user').setDescription('Discord user to create the account for').setRequired(true))
         .addStringOption(serverOption),
+      new SlashCommandBuilder()
+        .setName('wowlevel')
+        .setDescription('Level up an AI bot character on an AzerothCore server (bots only, not players)')
+        .addStringOption(serverOption)
+        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
+      new SlashCommandBuilder()
+        .setName('wowgear')
+        .setDescription('Re-gear an AI bot character on an AzerothCore server (bots only, not players)')
+        .addStringOption(serverOption)
+        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
     ].map((c) => c.toJSON());
 
     const rest = new REST().setToken(cfg.bot_token);
@@ -404,7 +425,7 @@ class DiscordBot {
   private async handleInteraction(interaction: Interaction): Promise<void> {
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused().toLowerCase();
-      const azerothOnly = interaction.commandName === 'wowcreate';
+      const azerothOnly = ['wowcreate', 'wowlevel', 'wowgear'].includes(interaction.commandName);
       const servers = listServers()
         .filter((s) => s.name.toLowerCase().includes(focused))
         .filter((s) => !azerothOnly || s.game === 'azerothcore')
@@ -693,6 +714,43 @@ class DiscordBot {
         await interaction.editReply(`📨 Sent ${targetUser} a DM to set up their account on **${server.name}**.`);
       } catch {
         await interaction.editReply(`❌ Couldn't DM ${targetUser} — they may have DMs disabled for this server.`);
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'wowlevel' || interaction.commandName === 'wowgear') {
+      if (!this.memberCan(member, 'wowBotManage')) {
+        await interaction.reply({ content: '⛔ You do not have permission to manage AI bots.', ephemeral: true });
+        return;
+      }
+      if (server.game !== 'azerothcore') {
+        await interaction.reply({ content: '⛔ That server is not an AzerothCore server.', ephemeral: true });
+        return;
+      }
+      if (!hasDbConfig(server)) {
+        await interaction.reply({
+          content: '⛔ The player database is not configured for this server, so bot characters can\'t be verified — set it in the Settings tab.',
+          ephemeral: true,
+        });
+        return;
+      }
+      const character = interaction.options.getString('character', true).trim();
+      const { soapCmd, label } = WOW_BOT_COMMANDS[interaction.commandName];
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const isBot = await isAzerothBotCharacter(server, character);
+        if (!isBot) {
+          await interaction.editReply(
+            `⛔ **${character}** is not an AI bot character on **${server.name}** (or doesn't exist) — this only works on mod-playerbots AI bots, not real players.`
+          );
+          return;
+        }
+        await sendRconCommand(server, soapCmd(character));
+        await interaction.editReply(
+          `✅ ${label} command sent for **${character}** on **${server.name}**. AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
+        );
+      } catch (err: any) {
+        await interaction.editReply(`❌ Failed: ${err?.message || err}`);
       }
     }
   }

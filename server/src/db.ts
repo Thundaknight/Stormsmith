@@ -68,7 +68,8 @@ export function initDb(): void {
       can_restart INTEGER NOT NULL DEFAULT 0,
       can_rcon INTEGER NOT NULL DEFAULT 0,
       can_broadcast INTEGER NOT NULL DEFAULT 0,
-      can_create_wow_accounts INTEGER NOT NULL DEFAULT 0
+      can_create_wow_accounts INTEGER NOT NULL DEFAULT 0,
+      can_manage_wow_bots INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS discord_status_messages (
@@ -173,6 +174,7 @@ export function initDb(): void {
   addColumnTo('discord_config', 'oauth_restrict_to_guild', 'oauth_restrict_to_guild INTEGER NOT NULL DEFAULT 1');
   addColumnTo('server_permissions', 'can_configure', 'can_configure INTEGER NOT NULL DEFAULT 0');
   addColumnTo('discord_role_perms', 'can_create_wow_accounts', 'can_create_wow_accounts INTEGER NOT NULL DEFAULT 0');
+  addColumnTo('discord_role_perms', 'can_manage_wow_bots', 'can_manage_wow_bots INTEGER NOT NULL DEFAULT 0');
   addColumnTo('wow_password_resets', 'purpose', "purpose TEXT NOT NULL DEFAULT 'reset'");
   addColumnTo('wow_password_resets', 'gm_level', 'gm_level INTEGER NOT NULL DEFAULT 0');
 
@@ -407,15 +409,16 @@ export function setDiscordRolePerms(rows: Array<Omit<DiscordRolePerm, never>>): 
   const ins = db.prepare(
     `INSERT INTO discord_role_perms
      (role_id, role_name, can_use_commands, can_start, can_stop, can_restart, can_rcon, can_broadcast,
-      can_create_wow_accounts)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      can_create_wow_accounts, can_manage_wow_bots)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   db.transaction(() => {
     del.run();
     for (const r of rows) {
       ins.run(
         r.role_id, r.role_name, r.can_use_commands ? 1 : 0, r.can_start ? 1 : 0, r.can_stop ? 1 : 0,
-        r.can_restart ? 1 : 0, r.can_rcon ? 1 : 0, r.can_broadcast ? 1 : 0, r.can_create_wow_accounts ? 1 : 0
+        r.can_restart ? 1 : 0, r.can_rcon ? 1 : 0, r.can_broadcast ? 1 : 0, r.can_create_wow_accounts ? 1 : 0,
+        r.can_manage_wow_bots ? 1 : 0
       );
     }
   })();

@@ -104,6 +104,7 @@ export interface DiscordRolePerm {
   can_rcon: boolean | number;
   can_broadcast: boolean | number;
   can_create_wow_accounts: boolean | number;
+  can_manage_wow_bots: boolean | number;
 }
 
 export interface CustomField {

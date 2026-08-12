@@ -95,6 +95,7 @@ router.put('/roles', (req, res) => {
         can_rcon: r.can_rcon ? 1 : 0,
         can_broadcast: r.can_broadcast ? 1 : 0,
         can_create_wow_accounts: r.can_create_wow_accounts ? 1 : 0,
+        can_manage_wow_bots: r.can_manage_wow_bots ? 1 : 0,
       }))
   );
   res.json({ roles: listDiscordRolePerms() });

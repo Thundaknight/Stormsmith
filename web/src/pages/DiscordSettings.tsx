@@ -11,6 +11,7 @@ const ROLE_PERM_COLUMNS: Array<{ key: keyof DiscordRolePerm; label: string }> = 
   { key: 'can_rcon', label: 'RCON' },
   { key: 'can_broadcast', label: 'Broadcast' },
   { key: 'can_create_wow_accounts', label: 'Create WoW accounts' },
+  { key: 'can_manage_wow_bots', label: 'Manage AI bots' },
 ];
 
 interface IdName {
@@ -142,6 +143,7 @@ export default function DiscordSettings() {
         can_rcon: false,
         can_broadcast: false,
         can_create_wow_accounts: false,
+        can_manage_wow_bots: false,
       },
     ]);
     setAddRoleId('');

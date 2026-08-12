@@ -142,3 +142,35 @@ export async function fetchAzerothCharacters(server: GameServer, username: strin
     await conn.end().catch(() => {});
   }
 }
+
+/**
+ * Whether a character name belongs to a mod-playerbots random bot account
+ * (not a real player) — gates the Discord bot-management commands, since
+ * AzerothCore's own `.playerbots rndbot` commands silently no-op on names
+ * outside its bot-account list rather than returning a usable error.
+ */
+export async function isAzerothBotCharacter(server: GameServer, characterName: string): Promise<boolean> {
+  if (!hasDbConfig(server)) {
+    throw new Error('Database connection is not configured for this server');
+  }
+  const charactersDb = server.db_characters_db;
+  const authDb = server.db_auth_db;
+  if (!IDENTIFIER_RE.test(charactersDb) || !IDENTIFIER_RE.test(authDb)) {
+    throw new Error('Database names must contain only letters, numbers, and underscores');
+  }
+
+  const conn = await connect(server);
+  try {
+    const prefix = server.bot_account_prefix || 'rndbot';
+    const [rows] = await conn.query(
+      `SELECT 1 FROM \`${charactersDb}\`.characters c
+       JOIN \`${authDb}\`.account a ON c.account = a.id
+       WHERE c.name = ? AND a.username LIKE ?
+       LIMIT 1`,
+      [characterName, `${prefix}%`]
+    );
+    return (rows as unknown[]).length > 0;
+  } finally {
+    await conn.end().catch(() => {});
+  }
+}
