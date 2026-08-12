@@ -44,7 +44,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   // auth
-  authStatus: () => request<{ needsSetup: boolean; discordOAuthEnabled: boolean }>('GET', '/api/auth/status'),
+  authStatus: () =>
+    request<{ needsSetup: boolean; discordOAuthEnabled: boolean; version: string }>('GET', '/api/auth/status'),
   setup: (username: string, password: string) =>
     request<{ token: string; user: User }>('POST', '/api/auth/setup', { username, password }),
   login: (username: string, password: string) =>

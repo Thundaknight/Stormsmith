@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import VersionFooter from '../components/VersionFooter';
 
 export default function Login() {
   const { login, setup, loginWithToken } = useAuth();
@@ -113,6 +114,7 @@ export default function Login() {
           </>
         )}
       </form>
+      <VersionFooter />
     </div>
   );
 }

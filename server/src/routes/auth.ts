@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { hashPassword, requireAuth, signToken, verifyPassword, verifyToken } from '../auth';
+import { config } from '../config';
 import {
   countUsers, createOAuthUser, createUser, getDiscordConfig, getUserByDiscordId, getUserById, getUserByUsername,
   linkDiscordAccount, unlinkDiscordAccount,
@@ -18,6 +19,7 @@ router.get('/status', (_req, res) => {
   res.json({
     needsSetup: countUsers() === 0,
     discordOAuthEnabled: !!(cfg.oauth_enabled && cfg.oauth_client_id && cfg.oauth_redirect_uri),
+    version: config.version,
   });
 });
 

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth';
+import VersionFooter from './VersionFooter';
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -29,6 +30,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <span className={`role-badge role-${user?.role}`}>{user?.role}</span>
           </div>
           <button className="btn btn-ghost" onClick={logout}>Sign out</button>
+          <VersionFooter />
         </div>
       </aside>
       <main className="content">{children}</main>

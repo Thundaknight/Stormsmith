@@ -49,12 +49,18 @@ const WOW_BOT_COMMANDS: Record<string, { soapCmd: (name: string) => string; labe
 };
 
 /**
- * AzerothCore's generic fallback when a `.playerbots rndbot ...` handler returns false — this
- * happens when the command found no matching bot with a live in-world Player object, which we
- * try to prevent by checking online status first, but a bot can still log out in the split
- * second between that check and the command actually running.
+ * AzerothCore's generic fallback when a `.playerbots rndbot ...` handler returns false. This
+ * isn't only about being offline: mod-playerbots tracks which bots are "currently active random
+ * bots" in an in-memory list on the game server, separate from the database's online flag, and
+ * that list isn't queryable from outside the server process. Stormsmith's online check catches
+ * the common case (an offline bot can never pass) but can't guarantee the deeper check passes
+ * too, so this fallback can still fire for a bot that looks online in the Player database.
  */
 const WOW_BOT_USAGE_FALLBACK_RE = /no detailed usage information/i;
+const WOW_BOT_FALLBACK_EXPLANATION =
+  "This can happen even when the bot shows as online — mod-playerbots tracks which bots are " +
+  "currently active internally, separately from the database, and Stormsmith can't see that " +
+  'part. Try again, or try a different bot from the Player Accounts list.';
 
 /** Account names go straight into a SOAP GM command, so keep them to a safe, unambiguous charset. */
 const WOW_USERNAME_RE = /^[A-Za-z0-9]{3,16}$/;
@@ -825,8 +831,7 @@ class DiscordBot {
             if (WOW_BOT_USAGE_FALLBACK_RE.test(response)) {
               await interaction.editReply(
                 `⚠️ Sent ${completed} of ${steps} level-up step${steps === 1 ? '' : 's'} for **${character}** on ` +
-                `**${server.name}** before AzerothCore stopped responding to it — it may have gone offline. Check its ` +
-                `status in Player Accounts and try again to continue.`
+                `**${server.name}** before AzerothCore stopped acting on it. ${WOW_BOT_FALLBACK_EXPLANATION}`
               );
               log('error', `current=${currentLevel} target=${targetLevel} steps_completed=${completed} of ${steps} (usage_fallback)`);
               return;
@@ -865,9 +870,7 @@ class DiscordBot {
         }
         const response = await sendRconCommand(server, soapCmd(character));
         if (WOW_BOT_USAGE_FALLBACK_RE.test(response)) {
-          await interaction.editReply(
-            `❌ AzerothCore didn't run this — **${character}** may have gone offline right before the command reached it. Try again.`
-          );
+          await interaction.editReply(`❌ AzerothCore didn't run this for **${character}**. ${WOW_BOT_FALLBACK_EXPLANATION}`);
           log('error', 'usage_fallback');
           return;
         }

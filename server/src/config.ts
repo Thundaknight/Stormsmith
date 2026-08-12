@@ -27,6 +27,17 @@ function resolveDbFile(): string {
   return dbFile;
 }
 
+// Read directly from package.json (copied into the image alongside dist/) so the version
+// shown in the UI always matches what's actually running, not a value baked in at build time.
+function loadVersion(): string {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'));
+    return pkg.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '8080', 10),
   dataDir,
@@ -37,4 +48,5 @@ export const config = {
   dockerHost: process.env.DOCKER_HOST || '',
   dockerSocket: process.env.DOCKER_SOCK || '/var/run/docker.sock',
   pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000', 10),
+  version: loadVersion(),
 };
