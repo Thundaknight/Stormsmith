@@ -143,45 +143,27 @@ export async function fetchAzerothCharacters(server: GameServer, username: strin
   }
 }
 
-/**
- * Whether a character name belongs to a mod-playerbots random bot account
- * (not a real player) — gates the Discord bot-management commands, since
- * AzerothCore's own `.playerbots rndbot` commands silently no-op on names
- * outside its bot-account list rather than returning a usable error.
- */
-export async function isAzerothBotCharacter(server: GameServer, characterName: string): Promise<boolean> {
-  if (!hasDbConfig(server)) {
-    throw new Error('Database connection is not configured for this server');
-  }
-  const charactersDb = server.db_characters_db;
-  const authDb = server.db_auth_db;
-  if (!IDENTIFIER_RE.test(charactersDb) || !IDENTIFIER_RE.test(authDb)) {
-    throw new Error('Database names must contain only letters, numbers, and underscores');
-  }
-
-  const conn = await connect(server);
-  try {
-    const prefix = server.bot_account_prefix || 'rndbot';
-    const [rows] = await conn.query(
-      `SELECT 1 FROM \`${charactersDb}\`.characters c
-       JOIN \`${authDb}\`.account a ON c.account = a.id
-       WHERE c.name = ? AND a.username LIKE ?
-       LIMIT 1`,
-      [characterName, `${prefix}%`]
-    );
-    return (rows as unknown[]).length > 0;
-  } finally {
-    await conn.end().catch(() => {});
-  }
+export interface AzerothBotStatus {
+  exists: boolean;
+  isBot: boolean;
+  online: boolean;
+  level: number | null;
 }
 
 /**
- * A bot character's current level, or null if the name isn't a bot on this
- * server (or doesn't exist) — used by /wowlevel, which has to step a bot up
- * one level at a time (AzerothCore has no "set to level N" console command)
- * and needs to know how many steps that is.
+ * Looks up whether a character exists, belongs to a mod-playerbots random
+ * bot account (not a real player), whether it's currently online, and its
+ * level — gates the Discord bot-management commands.
+ *
+ * The online check matters more than it sounds: AzerothCore's
+ * `.playerbots rndbot` console commands only act on bots with a live
+ * in-world Player object (`ObjectAccessor::FindPlayer`) — an offline bot
+ * that's otherwise a perfectly valid random-bot account still finds nothing
+ * to act on, and the command handler returns false, which the framework
+ * turns into a generic "no detailed usage information" error rather than
+ * anything explaining that the bot just needs to be online.
  */
-export async function getAzerothBotCharacterLevel(server: GameServer, characterName: string): Promise<number | null> {
+export async function getAzerothBotStatus(server: GameServer, characterName: string): Promise<AzerothBotStatus> {
   if (!hasDbConfig(server)) {
     throw new Error('Database connection is not configured for this server');
   }
@@ -193,16 +175,19 @@ export async function getAzerothBotCharacterLevel(server: GameServer, characterN
 
   const conn = await connect(server);
   try {
-    const prefix = server.bot_account_prefix || 'rndbot';
     const [rows] = await conn.query(
-      `SELECT c.level AS level FROM \`${charactersDb}\`.characters c
+      `SELECT a.username AS username, c.online AS online, c.level AS level
+       FROM \`${charactersDb}\`.characters c
        JOIN \`${authDb}\`.account a ON c.account = a.id
-       WHERE c.name = ? AND a.username LIKE ?
+       WHERE c.name = ?
        LIMIT 1`,
-      [characterName, `${prefix}%`]
+      [characterName]
     );
-    const row = (rows as Array<{ level: number }>)[0];
-    return row ? row.level : null;
+    const row = (rows as Array<{ username: string; online: number; level: number }>)[0];
+    if (!row) return { exists: false, isBot: false, online: false, level: null };
+    const prefix = (server.bot_account_prefix || 'rndbot').toLowerCase();
+    const isBot = row.username.toLowerCase().startsWith(prefix);
+    return { exists: true, isBot, online: !!row.online, level: row.level };
   } finally {
     await conn.end().catch(() => {});
   }

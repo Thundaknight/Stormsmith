@@ -10,7 +10,7 @@ import {
   listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, logDiscordCommand, setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
-import { getAzerothBotCharacterLevel, hasDbConfig, isAzerothBotCharacter } from '../games/azerothcore';
+import { getAzerothBotStatus, hasDbConfig } from '../games/azerothcore';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
@@ -47,6 +47,14 @@ const WOW_BOT_COMMANDS: Record<string, { soapCmd: (name: string) => string; labe
   wowgear: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Gear refresh' },
   wowrestock: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Restock' },
 };
+
+/**
+ * AzerothCore's generic fallback when a `.playerbots rndbot ...` handler returns false — this
+ * happens when the command found no matching bot with a live in-world Player object, which we
+ * try to prevent by checking online status first, but a bot can still log out in the split
+ * second between that check and the command actually running.
+ */
+const WOW_BOT_USAGE_FALLBACK_RE = /no detailed usage information/i;
 
 /** Account names go straight into a SOAP GM command, so keep them to a safe, unambiguous charset. */
 const WOW_USERNAME_RE = /^[A-Za-z0-9]{3,16}$/;
@@ -783,14 +791,22 @@ class DiscordBot {
         const targetLevel = interaction.options.getInteger('level', true);
         await interaction.deferReply({ ephemeral: true });
         try {
-          const currentLevel = await getAzerothBotCharacterLevel(server, character);
-          if (currentLevel === null) {
+          const status = await getAzerothBotStatus(server, character);
+          if (!status.exists || !status.isBot) {
             await interaction.editReply(
               `⛔ **${character}** is not an AI bot character on **${server.name}** (or doesn't exist) — this only works on mod-playerbots AI bots, not real players.`
             );
             log('not_bot', '');
             return;
           }
+          if (!status.online) {
+            await interaction.editReply(
+              `⛔ **${character}** is a bot, but it isn't currently online — mod-playerbots only acts on bots that are active in the world. Check its status in Player Accounts and try again once it's online.`
+            );
+            log('not_online', '');
+            return;
+          }
+          const currentLevel = status.level!;
           if (targetLevel <= currentLevel) {
             await interaction.editReply(
               `⛔ **${character}** is already level ${currentLevel} — AzerothCore has no console command to lower a bot's level, only raise it.`
@@ -800,11 +816,21 @@ class DiscordBot {
           }
           // AzerothCore's rndbot "level" command only ever raises a bot by exactly one level per
           // call — there's no "set to level N" command — so reaching a target means calling it
-          // once per level.
+          // once per level. Stop early (and report what happened) if the bot drops offline or
+          // AzerothCore otherwise rejects a step partway through.
           const steps = targetLevel - currentLevel;
           let completed = 0;
           for (; completed < steps; completed++) {
-            await sendRconCommand(server, `.playerbots rndbot level ${character}`);
+            const response = await sendRconCommand(server, `.playerbots rndbot level ${character}`);
+            if (WOW_BOT_USAGE_FALLBACK_RE.test(response)) {
+              await interaction.editReply(
+                `⚠️ Sent ${completed} of ${steps} level-up step${steps === 1 ? '' : 's'} for **${character}** on ` +
+                `**${server.name}** before AzerothCore stopped responding to it — it may have gone offline. Check its ` +
+                `status in Player Accounts and try again to continue.`
+              );
+              log('error', `current=${currentLevel} target=${targetLevel} steps_completed=${completed} of ${steps} (usage_fallback)`);
+              return;
+            }
           }
           await interaction.editReply(
             `✅ Sent ${completed} level-up step${completed === 1 ? '' : 's'} for **${character}** on **${server.name}** ` +
@@ -822,15 +848,29 @@ class DiscordBot {
       const { soapCmd, label } = WOW_BOT_COMMANDS[interaction.commandName];
       await interaction.deferReply({ ephemeral: true });
       try {
-        const isBot = await isAzerothBotCharacter(server, character);
-        if (!isBot) {
+        const status = await getAzerothBotStatus(server, character);
+        if (!status.exists || !status.isBot) {
           await interaction.editReply(
             `⛔ **${character}** is not an AI bot character on **${server.name}** (or doesn't exist) — this only works on mod-playerbots AI bots, not real players.`
           );
           log('not_bot', '');
           return;
         }
-        await sendRconCommand(server, soapCmd(character));
+        if (!status.online) {
+          await interaction.editReply(
+            `⛔ **${character}** is a bot, but it isn't currently online — mod-playerbots only acts on bots that are active in the world. Check its status in Player Accounts and try again once it's online.`
+          );
+          log('not_online', '');
+          return;
+        }
+        const response = await sendRconCommand(server, soapCmd(character));
+        if (WOW_BOT_USAGE_FALLBACK_RE.test(response)) {
+          await interaction.editReply(
+            `❌ AzerothCore didn't run this — **${character}** may have gone offline right before the command reached it. Try again.`
+          );
+          log('error', 'usage_fallback');
+          return;
+        }
         const note =
           interaction.commandName === 'wowrestock'
             ? ' (AzerothCore has no separate restock command — this runs the same refresh action as /wowgear, which restocks ammo/food/reagents/consumables/potions alongside gear.)'
