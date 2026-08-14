@@ -1,11 +1,23 @@
 # Stormsmith
 
-A self-hosted manager for game servers running as Docker containers on Unraid (or any Docker host).
+Stormsmith is a self-hosted web dashboard for running game servers as Docker containers — on Unraid or any other Docker host. Point it at containers you already have and it takes over the day-to-day: start/stop/restart, live status and stats, RCON/console access, scheduled restarts, and a Discord bot that mirrors all of it as embeds, buttons, and slash commands. Multiple people can share one instance with per-server, per-action permissions instead of everyone needing full access, and accounts can be created via Discord sign-in or an admin-issued invite link — no shared passwords. Palworld and AzerothCore (WoW) get extra dedicated tooling (a settings editor and GM/player-account management, respectively) beyond what's available for games in general.
 
 - **Docker Hub:** [`thundaknight/stormsmith`](https://hub.docker.com/r/thundaknight/stormsmith)
 - **Source:** [github.com/Thundaknight/Stormsmith](https://github.com/Thundaknight/Stormsmith)
 
-**Features**
+## Features at a glance
+
+- Import any Docker container as a managed game server, with live status, CPU/memory stats, and start/stop/restart/pause controls
+- RCON console and in-game broadcasts for Source-RCON games, plus a SOAP-based GM console for AzerothCore
+- A Discord bot that posts auto-updating status embeds with control buttons, and offers slash commands for control, RCON, broadcasts, and AzerothCore account/bot management
+- Multi-user access with granular per-server permissions (view/control/RCON/configure); sign in via username+password, Discord OAuth, or an admin-issued invite link
+- Scheduled restarts with in-game warnings, custom embed fields, and configurable public address display
+- A full Palworld settings editor and dedicated AzerothCore player-account and bot-management tooling
+- An admin-only Logs page auditing sensitive Discord bot commands, and a version footer to confirm what's actually deployed
+
+See below for the full detail on each feature.
+
+**Features (detailed)**
 
 - **Import game servers** — pick any Docker container on the host (Palworld, Satisfactory, Minecraft, …) and manage it as a game server with live status monitoring.
 - **Web interface** — start, stop, restart, pause and resume servers; live status via WebSocket; CPU/memory stats.
