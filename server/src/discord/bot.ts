@@ -30,37 +30,7 @@ const PERM_COLUMN: Record<DiscordPerm, keyof DiscordRolePerm> = {
   wowBotManage: 'can_manage_wow_bots',
 };
 
-const WOW_BOT_COMMAND_NAMES = new Set(['wowlevel', 'wowgear', 'wowrestock']);
-
-/**
- * AzerothCore commands invocable on mod-playerbots' AI bots specifically, keyed by Discord
- * command name. /wowlevel is handled separately (see handleCommand) since it needs a target
- * level and a loop of increments, not a single fixed command.
- *
- * /wowgear and /wowrestock both resolve to the same `refresh` console command — AzerothCore
- * has no narrower one. `PlayerbotFactory::Refresh()` (what `refresh` runs) already covers both
- * gearing (repair, re-equip, enchants) and restocking (ammo, food, reagents, consumables,
- * potions) in one pass; the in-game "autogear" and "maintenance" whisper commands split those
- * apart, but both are chat-only and cannot be invoked over SOAP/console at all.
- */
-const WOW_BOT_COMMANDS: Record<string, { soapCmd: (name: string) => string; label: string }> = {
-  wowgear: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Gear refresh' },
-  wowrestock: { soapCmd: (name) => `.playerbots rndbot refresh ${name}`, label: 'Restock' },
-};
-
-/**
- * AzerothCore's generic fallback when a `.playerbots rndbot ...` handler returns false. This
- * isn't only about being offline: mod-playerbots tracks which bots are "currently active random
- * bots" in an in-memory list on the game server, separate from the database's online flag, and
- * that list isn't queryable from outside the server process. Stormsmith's online check catches
- * the common case (an offline bot can never pass) but can't guarantee the deeper check passes
- * too, so this fallback can still fire for a bot that looks online in the Player database.
- */
-const WOW_BOT_USAGE_FALLBACK_RE = /no detailed usage information/i;
-const WOW_BOT_FALLBACK_EXPLANATION =
-  "This can happen even when the bot shows as online — mod-playerbots tracks which bots are " +
-  "currently active internally, separately from the database, and Stormsmith can't see that " +
-  'part. Try again, or try a different bot from the Player Accounts list.';
+const WOW_BOT_COMMAND_NAMES = new Set(['wowlevel']);
 
 /** Account names go straight into a SOAP GM command, so keep them to a safe, unambiguous charset. */
 const WOW_USERNAME_RE = /^[A-Za-z0-9]{3,16}$/;
@@ -243,16 +213,6 @@ class DiscordBot {
         .addIntegerOption((o) =>
           o.setName('level').setDescription('Target level').setRequired(true).setMinValue(1).setMaxValue(100)
         ),
-      new SlashCommandBuilder()
-        .setName('wowgear')
-        .setDescription('Re-gear an AI bot character on an AzerothCore server (bots only, not players)')
-        .addStringOption(serverOption)
-        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
-      new SlashCommandBuilder()
-        .setName('wowrestock')
-        .setDescription('Restock ammo/food/reagents/consumables for an AI bot (bots only, not players)')
-        .addStringOption(serverOption)
-        .addStringOption((o) => o.setName('character').setDescription('Bot character name').setRequired(true)),
     ].map((c) => c.toJSON());
 
     const rest = new REST().setToken(cfg.bot_token);
@@ -436,7 +396,7 @@ class DiscordBot {
     return allowed.length === 0 || allowed.includes(channelId);
   }
 
-  /** Standalone channel restriction for /wowlevel, /wowgear, /wowrestock — overrides channelAllowed() for these when set. */
+  /** Standalone channel restriction for /wowlevel — overrides channelAllowed() for it when set. */
   private wowBotChannelAllowed(channelId: string): boolean {
     const allowed = parseIds(this.cfg!.wow_bot_channel_ids);
     return allowed.length === 0 || allowed.includes(channelId);
@@ -820,72 +780,23 @@ class DiscordBot {
             log('invalid_target', `current=${currentLevel} target=${targetLevel}`);
             return;
           }
-          // AzerothCore's rndbot "level" command only ever raises a bot by exactly one level per
-          // call — there's no "set to level N" command — so reaching a target means calling it
-          // once per level. Stop early (and report what happened) if the bot drops offline or
-          // AzerothCore otherwise rejects a step partway through.
+          // `.levelup` is a core AzerothCore GM command that operates directly on the character
+          // record, unlike `.playerbots rndbot level` — so it works regardless of whether the bot
+          // is still tracked in mod-playerbots' random-bot pool (e.g. after being partied and
+          // dropped from that pool, which the rndbot command silently can't act on).
           const steps = targetLevel - currentLevel;
-          let completed = 0;
-          for (; completed < steps; completed++) {
-            const response = await sendRconCommand(server, `.playerbots rndbot level ${character}`);
-            if (WOW_BOT_USAGE_FALLBACK_RE.test(response)) {
-              await interaction.editReply(
-                `⚠️ Sent ${completed} of ${steps} level-up step${steps === 1 ? '' : 's'} for **${character}** on ` +
-                `**${server.name}** before AzerothCore stopped acting on it. ${WOW_BOT_FALLBACK_EXPLANATION}`
-              );
-              log('error', `current=${currentLevel} target=${targetLevel} steps_completed=${completed} of ${steps} (usage_fallback)`);
-              return;
-            }
-          }
+          await sendRconCommand(server, `.levelup ${character} ${steps}`);
           await interaction.editReply(
-            `✅ Sent ${completed} level-up step${completed === 1 ? '' : 's'} for **${character}** on **${server.name}** ` +
+            `✅ Sent a ${steps}-level level-up for **${character}** on **${server.name}** ` +
             `(${currentLevel} → ${targetLevel}). AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
           );
-          log('success', `current=${currentLevel} target=${targetLevel} steps=${completed}`);
+          log('success', `current=${currentLevel} target=${targetLevel} steps=${steps}`);
         } catch (err: any) {
           const message = err?.message || String(err);
           await interaction.editReply(`❌ Failed: ${message}`);
           log('error', message);
         }
         return;
-      }
-
-      const { soapCmd, label } = WOW_BOT_COMMANDS[interaction.commandName];
-      await interaction.deferReply({ ephemeral: true });
-      try {
-        const status = await getAzerothBotStatus(server, character);
-        if (!status.exists || !status.isBot) {
-          await interaction.editReply(
-            `⛔ **${character}** is not an AI bot character on **${server.name}** (or doesn't exist) — this only works on mod-playerbots AI bots, not real players.`
-          );
-          log('not_bot', '');
-          return;
-        }
-        if (!status.online) {
-          await interaction.editReply(
-            `⛔ **${character}** is a bot, but it isn't currently online — mod-playerbots only acts on bots that are active in the world. Check its status in Player Accounts and try again once it's online.`
-          );
-          log('not_online', '');
-          return;
-        }
-        const response = await sendRconCommand(server, soapCmd(character));
-        if (WOW_BOT_USAGE_FALLBACK_RE.test(response)) {
-          await interaction.editReply(`❌ AzerothCore didn't run this for **${character}**. ${WOW_BOT_FALLBACK_EXPLANATION}`);
-          log('error', 'usage_fallback');
-          return;
-        }
-        const note =
-          interaction.commandName === 'wowrestock'
-            ? ' (AzerothCore has no separate restock command — this runs the same refresh action as /wowgear, which restocks ammo/food/reagents/consumables/potions alongside gear.)'
-            : '';
-        await interaction.editReply(
-          `✅ ${label} command sent for **${character}** on **${server.name}**.${note} AzerothCore doesn't confirm this action — check in-game or the character list to verify it took effect.`
-        );
-        log('success', '');
-      } catch (err: any) {
-        const message = err?.message || String(err);
-        await interaction.editReply(`❌ Failed: ${message}`);
-        log('error', message);
       }
     }
   }

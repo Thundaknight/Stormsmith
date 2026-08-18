@@ -37,8 +37,8 @@ export default function Logs() {
       <div className="card">
         <h2>Discord command activity</h2>
         <p className="muted">
-          Every use of a sensitive Discord bot command — currently <span className="mono">/wowlevel</span> and{' '}
-          <span className="mono">/wowgear</span> — including denied and failed attempts, newest first.
+          Every use of a sensitive Discord bot command — currently <span className="mono">/wowlevel</span> —
+          including denied and failed attempts, newest first.
         </p>
         {error && <div className="alert alert-error">{error}</div>}
         {!error && entries === null && <div className="muted">Loading…</div>}

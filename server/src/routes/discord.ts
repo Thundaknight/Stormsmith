@@ -105,7 +105,7 @@ router.put('/roles', (req, res) => {
   res.json({ roles: listDiscordRolePerms() });
 });
 
-/** Audit trail for sensitive bot commands (currently /wowlevel and /wowgear). */
+/** Audit trail for sensitive bot commands (currently /wowlevel). */
 router.get('/logs', (req, res) => {
   const limit = Math.min(Math.max(parseInt(String(req.query.limit || '200'), 10) || 200, 1), 2000);
   const entries = listDiscordCommandLog(limit);

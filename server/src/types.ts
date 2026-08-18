@@ -117,7 +117,7 @@ export interface DiscordConfig {
   control_role_ids: string; // JSON string[]
   rcon_role_ids: string; // JSON string[]
   command_channel_ids: string; // JSON string[]; empty = all channels
-  wow_bot_channel_ids: string; // JSON string[]; empty = all channels; further restricts /wowlevel and /wowgear
+  wow_bot_channel_ids: string; // JSON string[]; empty = all channels; further restricts /wowlevel
   allow_start: number;
   allow_stop: number;
   allow_restart: number;
