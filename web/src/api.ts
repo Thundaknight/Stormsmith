@@ -1,6 +1,7 @@
 import type {
   Account, ContainerSummary, CustomField, DiscordConfigView, DiscordLogEntry, DiscordRolePerm, GameServer,
-  InviteLink, ModEntry, Permission, ServerAction, User, WowAccount, WowAccountLink, WowCharacter,
+  InviteLink, ModEntry, Permission, ServerAction, UnifiConfigView, UnifiRule, User, WowAccount, WowAccountLink,
+  WowCharacter,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -159,4 +160,12 @@ export const api = {
   setDiscordRoles: (roles: DiscordRolePerm[]) =>
     request<{ roles: DiscordRolePerm[] }>('PUT', '/api/discord/roles', { roles }),
   listDiscordLogs: () => request<{ entries: DiscordLogEntry[] }>('GET', '/api/discord/logs'),
+
+  // unifi (port-forward automation)
+  getUnifiConfig: () => request<{ config: UnifiConfigView }>('GET', '/api/unifi/config'),
+  updateUnifiConfig: (data: Record<string, unknown>) =>
+    request<{ config: UnifiConfigView }>('PUT', '/api/unifi/config', data),
+  testUnifi: () =>
+    request<{ ok: boolean; error?: string; rules: UnifiRule[]; config: UnifiConfigView }>('POST', '/api/unifi/test'),
+  unifiRules: () => request<{ rules: UnifiRule[]; enabled: boolean }>('GET', '/api/unifi/rules'),
 };

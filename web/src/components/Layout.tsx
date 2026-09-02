@@ -19,6 +19,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <NavLink to="/import">Import Server</NavLink>
               <NavLink to="/users">Users</NavLink>
               <NavLink to="/discord">Discord Bot</NavLink>
+              <NavLink to="/unifi">Port Forwarding</NavLink>
               <NavLink to="/logs">Logs</NavLink>
             </>
           )}

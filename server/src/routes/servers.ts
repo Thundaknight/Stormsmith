@@ -3,7 +3,7 @@ import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
   createServer, createWowAccountLink, deleteServer, deleteWowAccountLink, getServerById, listCustomFields,
-  listServers, listWowAccountLinks, setCustomFields, updateServer,
+  listServers, listUnifiRules, listWowAccountLinks, setCustomFields, setUnifiRules, updateServer,
 } from '../db';
 import { resolveDisplayAddress } from '../address';
 import {
@@ -17,6 +17,7 @@ import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
 import { delayScheduledRestart, getNextScheduledRestart } from '../scheduler';
+import { unifiSync } from '../unifi/sync';
 import type { GameServer, ServerAction } from '../types';
 import { asyncRoute } from './helpers';
 
@@ -77,6 +78,8 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     db_characters_db: s.db_characters_db,
     db_auth_db: s.db_auth_db,
     bot_account_prefix: s.bot_account_prefix,
+    unifi_rule_ids: listUnifiRules(s.id).map((r) => r.rule_id),
+    unifi_warning: unifiSync.warningFor(s.id),
   };
 }
 
@@ -211,6 +214,19 @@ router.put('/:id', requireServerPermission('configure'), (req, res) => {
         : server.address_mode,
     custom_address: b.custom_address !== undefined ? String(b.custom_address).trim() : server.custom_address,
   });
+  // Port forwarding is network-level, so it stays admin-only even for users granted 'configure'
+  // on this server — same rule as Import Server / Users / Discord Bot.
+  if (b.unifi_rules !== undefined && req.user?.role === 'admin') {
+    const rules = Array.isArray(b.unifi_rules) ? b.unifi_rules : [];
+    setUnifiRules(
+      server.id,
+      rules.map((r: any) =>
+        typeof r === 'string'
+          ? { rule_id: r, rule_name: '' }
+          : { rule_id: String(r?.rule_id || ''), rule_name: String(r?.rule_name || '') }
+      )
+    );
+  }
   monitor.refresh().catch(() => {});
   discordBot.refreshStatus();
   res.json({ server: publicServer(getServerById(server.id)!, true) });

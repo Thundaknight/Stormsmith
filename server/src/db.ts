@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { config } from './config';
 import type {
   CustomField, DiscordCommandLogEntry, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission,
-  User, WowAccountLink,
+  UnifiConfig, UnifiRuleMapping, User, WowAccountLink,
 } from './types';
 
 export const db = new Database(config.dbFile);
@@ -145,6 +145,27 @@ export function initDb(): void {
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS unifi_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 0,
+      host TEXT NOT NULL DEFAULT '',
+      port INTEGER NOT NULL DEFAULT 443,
+      site TEXT NOT NULL DEFAULT 'default',
+      username TEXT NOT NULL DEFAULT '',
+      password TEXT NOT NULL DEFAULT '',
+      verify_tls INTEGER NOT NULL DEFAULT 0,
+      grace_seconds INTEGER NOT NULL DEFAULT 90
+    );
+
+    INSERT OR IGNORE INTO unifi_config (id) VALUES (1);
+
+    CREATE TABLE IF NOT EXISTS server_unifi_rules (
+      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      rule_id TEXT NOT NULL,
+      rule_name TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (server_id, rule_id)
     );
   `);
 
@@ -578,4 +599,61 @@ export function getInviteLink(token: string): InviteLink | undefined {
 
 export function deleteInviteLink(token: string): void {
   db.prepare('DELETE FROM invite_links WHERE token = ?').run(token);
+}
+
+// ---- UniFi integration (port-forward rules follow container state) ----
+
+export function getUnifiConfig(): UnifiConfig {
+  return db.prepare('SELECT * FROM unifi_config WHERE id = 1').get() as UnifiConfig;
+}
+
+export function updateUnifiConfig(fields: Partial<UnifiConfig>): void {
+  const allowed: Array<keyof UnifiConfig> = [
+    'enabled', 'host', 'port', 'site', 'username', 'password', 'verify_tls', 'grace_seconds',
+  ];
+  const keys = allowed.filter((k) => fields[k] !== undefined);
+  if (keys.length === 0) return;
+  const sets = keys.map((k) => `${k} = ?`).join(', ');
+  db.prepare(`UPDATE unifi_config SET ${sets} WHERE id = 1`).run(...keys.map((k) => fields[k]));
+}
+
+export function listUnifiRules(serverId: number): UnifiRuleMapping[] {
+  return db
+    .prepare('SELECT * FROM server_unifi_rules WHERE server_id = ? ORDER BY rule_name, rule_id')
+    .all(serverId) as UnifiRuleMapping[];
+}
+
+/** Every server-to-rule mapping, for the reconciler (one query instead of one per server). */
+export function listAllUnifiRules(): UnifiRuleMapping[] {
+  return db.prepare('SELECT * FROM server_unifi_rules').all() as UnifiRuleMapping[];
+}
+
+/**
+ * Replaces a server's mapped rules. `rule_name` is stored alongside the id so a rule that is
+ * deleted and recreated in UniFi (and so gets a new _id) can still be matched by name.
+ */
+export function setUnifiRules(serverId: number, rules: Array<{ rule_id: string; rule_name: string }>): void {
+  const del = db.prepare('DELETE FROM server_unifi_rules WHERE server_id = ?');
+  const ins = db.prepare(
+    'INSERT OR REPLACE INTO server_unifi_rules (server_id, rule_id, rule_name) VALUES (?, ?, ?)'
+  );
+  db.transaction(() => {
+    del.run(serverId);
+    for (const r of rules) {
+      const id = (r.rule_id || '').trim();
+      if (!id) continue;
+      ins.run(serverId, id, (r.rule_name || '').trim());
+    }
+  })();
+}
+
+/** Keeps stored rule names fresh so name-based recovery stays useful. */
+export function renameUnifiRule(ruleId: string, ruleName: string): void {
+  db.prepare('UPDATE server_unifi_rules SET rule_name = ? WHERE rule_id = ? AND rule_name != ?')
+    .run(ruleName, ruleId, ruleName);
+}
+
+/** Repoints a mapping after a rule was recreated in UniFi under a new _id but the same name. */
+export function remapUnifiRuleId(oldRuleId: string, newRuleId: string): void {
+  db.prepare('UPDATE OR REPLACE server_unifi_rules SET rule_id = ? WHERE rule_id = ?').run(newRuleId, oldRuleId);
 }

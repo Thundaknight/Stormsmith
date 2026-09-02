@@ -9,10 +9,12 @@ import { initPublicIp } from './publicIp';
 import { startScheduler } from './scheduler';
 import { initWs } from './ws';
 import { discordBot } from './discord/bot';
+import { unifiSync } from './unifi/sync';
 import authRoutes from './routes/auth';
 import serverRoutes from './routes/servers';
 import userRoutes from './routes/users';
 import discordRoutes from './routes/discord';
+import unifiRoutes from './routes/unifi';
 import wowAccountRoutes from './routes/wowAccount';
 import inviteRoutes from './routes/invite';
 
@@ -26,6 +28,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/servers', serverRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/discord', discordRoutes);
+app.use('/api/unifi', unifiRoutes);
 app.use('/api/wow-account', wowAccountRoutes);
 app.use('/api/invite', inviteRoutes);
 
@@ -43,6 +46,7 @@ initWs(httpServer);
 monitor.start();
 initPublicIp();
 startScheduler();
+unifiSync.start();
 discordBot.start().catch((err) => console.error('[discord] startup error:', err));
 setInterval(() => {
   sweepExpiredWowAccountLinks();
@@ -57,6 +61,7 @@ httpServer.listen(config.port, () => {
 
 process.on('SIGTERM', async () => {
   monitor.stop();
+  unifiSync.stop();
   await discordBot.stop();
   httpServer.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000);

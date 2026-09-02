@@ -131,6 +131,23 @@ export interface DiscordConfig {
   oauth_restrict_to_guild: number;
 }
 
+export interface UnifiConfig {
+  enabled: number;
+  host: string;
+  port: number;
+  site: string;
+  username: string;
+  password: string;
+  verify_tls: number;
+  grace_seconds: number;
+}
+
+export interface UnifiRuleMapping {
+  server_id: number;
+  rule_id: string;
+  rule_name: string;
+}
+
 export interface DiscordCommandLogEntry {
   id: number;
   command: string;

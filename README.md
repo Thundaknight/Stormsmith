@@ -12,6 +12,7 @@ Stormsmith is a self-hosted web dashboard for running game servers as Docker con
 - A Discord bot that posts auto-updating status embeds with control buttons, and offers slash commands for control, RCON, broadcasts, and AzerothCore account/bot management
 - Multi-user access with granular per-server permissions (view/control/RCON/configure); sign in via username+password, Discord OAuth, or an admin-issued invite link
 - Scheduled restarts with in-game warnings, custom embed fields, and configurable public address display
+- Automatic UniFi port forwarding: a server's port-forward rules close while it's stopped or paused, and reopen when it starts — restarts never close them
 - A full Palworld settings editor and dedicated AzerothCore player-account and bot-management tooling
 - An admin-only Logs page auditing sensitive Discord bot commands, and a version footer to confirm what's actually deployed
 
@@ -29,6 +30,7 @@ See below for the full detail on each feature.
 - **Scheduled restarts** — daily at a set time, or every N hours from a start time, with in-game RCON warnings at 30/5/1 minutes before. A restart is automatically skipped if the server already restarted within the last hour, and any upcoming restart can be pushed back 30 minutes at a time from the dashboard, the server page, or a Discord button.
 - **Address display control** — per server, show the auto-detected public IP and game port, substitute a custom address (e.g. a domain name), or hide the address entirely. Applies to the dashboard, the server page, and the Discord embed.
 - **Custom embed fields** — attach extra lines to a server's card and Discord embed: a plain message, or a titled link (e.g. a config-file download).
+- **UniFi port forwarding** — map a server to one or more port-forward rules on a UniFi console and Stormsmith keeps them in step with the container: open while it runs, closed once it's been stopped or paused, so a port is never left exposed with nothing behind it. See below for setup.
 - **Game-aware RCON UI** — RCON/console settings and controls only appear for games that actually have a remote console (Satisfactory and vanilla Valheim don't, so their server pages skip that UI entirely).
 
 ## Tech stack
@@ -121,6 +123,33 @@ AzerothCore doesn't speak Source RCON — it exposes GM commands over its worlds
   - AzerothCore doesn't send a confirmation back for this command, so Stormsmith can only confirm it was sent, not that it took effect.
   - `/wowlevel` can be restricted to specific Discord channels — see **AI bot command channels** on the Discord Bot page. When set, that list is authoritative for this command (it replaces, not adds to, the bot's general command-channel restriction). Every use, including denied and failed attempts, is recorded on the **Logs** page with who ran it, when, and the result.
   - `/wowgear` and `/wowrestock` (re-gearing/restocking an AI bot) have been removed — AzerothCore has no core GM command for either, only the `mod-playerbots`-specific `.playerbots rndbot refresh`, which (like all `rndbot` commands) stops working on a bot once it's ever been in a party, with no way to restore it.
+
+## UniFi port forwarding
+
+Stormsmith can close a game server's port-forward rules while the server isn't running, so a port is never left open to the internet with nothing listening behind it.
+
+It only ever flips a rule's **enabled** switch. It never creates, edits, or deletes rules — you make them in UniFi as usual and then point Stormsmith at the ones you want managed.
+
+**Setting it up**
+
+1. In your UniFi console, go to **Settings → Admins** and create an admin with **Local access only**. This is a hard requirement: Ubiquiti cloud/SSO logins are rejected by the port-forwarding API, and the account must **not** have two-factor authentication enabled.
+2. In the web UI → **Port Forwarding**: tick the enable box, enter the console's IP, port (443), site (`default` unless you renamed it), and the local admin's username and password, then **Save & test**. Leave *Verify TLS certificate* off — UniFi consoles use a self-signed certificate.
+3. The page then lists every port-forward rule on the console, with its current open/closed state and which server (if any) manages it.
+4. On each game server's **Settings** tab, pick the rules that belong to it. A server can drive several rules (game port, query port, …), and several servers can share one rule — a shared rule only closes once *all* of them are down.
+
+**How it behaves**
+
+- Rules **open immediately** when the container starts.
+- Rules **close once the container has been stopped or paused for the grace period** (default 90 seconds, configurable).
+- **Restarting never closes a port.** That's what the grace period is for — the container is back up long before the window expires, so no change is ever written. This applies to scheduled restarts too.
+- It follows the *actual* container state, not just Stormsmith's own buttons, so a crash or a stop from the Unraid UI closes the rules as well, and state is corrected automatically after Stormsmith itself restarts.
+- A rule flipped by hand in the UniFi console is put back within about a minute. If you need a port open for maintenance while its server is down, un-map it first or turn the integration off.
+- If the console is unreachable, Stormsmith leaves every rule exactly as it is and retries — it never guesses. The error shows on the Port Forwarding page. Container start/stop is completely unaffected either way; nothing waits on UniFi.
+- If a mapped rule is deleted and recreated in UniFi it comes back with a new internal id, so Stormsmith re-matches it by name and repoints the mapping. If it can't find it at all, the server's Settings tab shows a warning instead of silently doing nothing.
+
+Only admins can configure the console or map rules to servers, regardless of per-server permissions.
+
+Tested against UniFi OS consoles (UDM, UDM-Pro, UDR, UCG, Cloud Key Gen2+).
 
 The Stormsmith version is shown at the bottom of the sidebar (and on the login page) — useful for confirming a deployed container is actually running the version you expect, e.g. after pulling a new image.
 

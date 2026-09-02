@@ -66,7 +66,35 @@ export interface GameServer {
   db_characters_db?: string;
   db_auth_db?: string;
   bot_account_prefix?: string;
+  unifi_rule_ids?: string[];
+  unifi_warning?: string;
   created_at?: string;
+}
+
+export interface UnifiConfigView {
+  enabled: number;
+  host: string;
+  port: number;
+  site: string;
+  username: string;
+  password: string;
+  verify_tls: number;
+  grace_seconds: number;
+  password_set: boolean;
+  connected: boolean;
+  last_error: string;
+  last_sync: string | null;
+}
+
+export interface UnifiRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  dstPort: string;
+  fwd: string;
+  fwdPort: string;
+  proto: string;
+  serverIds: number[];
 }
 
 export interface ServerStatusUpdate {

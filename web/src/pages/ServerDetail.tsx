@@ -12,7 +12,7 @@ import StatusBadge from '../components/StatusBadge';
 import { formatBytes, formatRelative, mergeLive } from '../format';
 import type { GameCommand } from '../gameCommands';
 import { GAME_COMMANDS, buildCommand } from '../gameCommands';
-import type { GameServer, ServerAction } from '../types';
+import type { GameServer, ServerAction, UnifiRule } from '../types';
 import { GAME_PRESETS, gameSupportsConsole } from '../types';
 import { useStatusSocket } from '../useStatusSocket';
 
@@ -56,6 +56,9 @@ export default function ServerDetail() {
   const [restartEnabled, setRestartEnabled] = useState(false);
   const [discordShow, setDiscordShow] = useState(true);
   const [discordChannels, setDiscordChannels] = useState<Array<{ id: string; name: string }>>([]);
+  const [unifiRules, setUnifiRules] = useState<UnifiRule[]>([]);
+  const [unifiEnabled, setUnifiEnabled] = useState(false);
+  const [selectedUnifiRules, setSelectedUnifiRules] = useState<string[]>([]);
   const [settingsNotice, setSettingsNotice] = useState('');
 
   const initForm = useCallback((s: GameServer) => {
@@ -86,6 +89,7 @@ export default function ServerDetail() {
     });
     setRestartEnabled(!!s.restart_enabled);
     setDiscordShow(s.discord_show !== false);
+    setSelectedUnifiRules(s.unifi_rule_ids || []);
   }, []);
 
   const load = useCallback(() => {
@@ -103,6 +107,10 @@ export default function ServerDetail() {
   useEffect(() => {
     if (isAdmin) {
       api.discordMeta().then((r) => setDiscordChannels(r.channels)).catch(() => {});
+      api.unifiRules().then((r) => {
+        setUnifiEnabled(r.enabled);
+        setUnifiRules(r.rules);
+      }).catch(() => {});
     }
   }, [isAdmin]);
 
@@ -208,6 +216,15 @@ export default function ServerDetail() {
         ...form,
         restart_enabled: restartEnabled,
         discord_show: discordShow,
+        // Names travel with the ids so a rule recreated in UniFi can be re-matched by name.
+        ...(isAdmin
+          ? {
+              unifi_rules: selectedUnifiRules.map((ruleId) => ({
+                rule_id: ruleId,
+                rule_name: unifiRules.find((u) => u.id === ruleId)?.name || '',
+              })),
+            }
+          : {}),
       });
       setServer({ ...server, ...r.server });
       initForm({ ...server, ...r.server });
@@ -644,6 +661,41 @@ export default function ServerDetail() {
                   {' '}If RCON is configured, players are warned in-game 30 minutes, 5 minutes, and 1 minute before each restart.
                 </span>
               </div>
+              {isAdmin && unifiEnabled && (
+                <div className="span-2 restart-schedule">
+                  <div className="picker-label">UniFi port forwarding</div>
+                  {server.unifi_warning && <div className="alert alert-error">{server.unifi_warning}</div>}
+                  {unifiRules.length > 0 ? (
+                    <div className="chip-list">
+                      {unifiRules.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className={`chip ${selectedUnifiRules.includes(r.id) ? 'chip-on' : ''}`}
+                          onClick={() =>
+                            setSelectedUnifiRules(
+                              selectedUnifiRules.includes(r.id)
+                                ? selectedUnifiRules.filter((x) => x !== r.id)
+                                : [...selectedUnifiRules, r.id]
+                            )
+                          }
+                        >
+                          {r.name || r.id}{r.dstPort ? ` (${r.dstPort})` : ''}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="muted">
+                      No rules loaded — check the connection on the Port Forwarding page.
+                    </div>
+                  )}
+                  <span className="hint">
+                    These port-forward rules open when this server starts and close once it has been stopped or
+                    paused for the grace period. Restarting never closes them. Configure the console on the{' '}
+                    <Link to="/unifi">Port Forwarding</Link> page.
+                  </span>
+                </div>
+              )}
               <div className="btn-row span-2">
                 <button className="btn btn-primary" type="submit">Save settings</button>
                 <button className="btn" type="button" onClick={() => initForm(server)}>Reset</button>
