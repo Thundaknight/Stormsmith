@@ -147,6 +147,13 @@ It only ever flips a rule's **enabled** switch. It never creates, edits, or dele
 - If the console is unreachable, Stormsmith leaves every rule exactly as it is and retries — it never guesses. The error shows on the Port Forwarding page. Container start/stop is completely unaffected either way; nothing waits on UniFi.
 - If a mapped rule is deleted and recreated in UniFi it comes back with a new internal id, so Stormsmith re-matches it by name and repoints the mapping. If it can't find it at all, the server's Settings tab shows a warning instead of silently doing nothing.
 
+**If the connection test fails**
+
+- *"Use a local UniFi admin account…"* — the account is still tied to a Ubiquiti cloud/SSO identity. Recreate it with local access only.
+- *"…two-factor authentication enabled"* — turn MFA off for that account, or make a separate one for Stormsmith.
+- *"UniFi refused the login request (HTTP 403)"* — the console rejected the request before checking the credentials. Point the host and port at the UniFi console itself rather than a reverse proxy in front of it. Repeated failed logins can also block the caller for a few minutes.
+- *"…self-signed certificate"* — untick **Verify TLS certificate**.
+
 Only admins can configure the console or map rules to servers, regardless of per-server permissions.
 
 Tested against UniFi OS consoles (UDM, UDM-Pro, UDR, UCG, Cloud Key Gen2+).

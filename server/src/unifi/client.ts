@@ -40,7 +40,11 @@ interface RawResponse {
   json: any;
 }
 
-export class UnifiError extends Error {}
+export class UnifiError extends Error {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+  }
+}
 
 export class UnifiClient {
   private cookies = new Map<string, string>();
@@ -125,6 +129,23 @@ export class UnifiClient {
     if (typeof csrf === 'string' && csrf) this.csrfToken = csrf;
   }
 
+  /**
+   * UniFi OS's nginx front end rejects any POST without an X-CSRF-Token — including the
+   * login itself, with a bare 403 and no explanation. The token is only handed out in a
+   * response, so the session has to be primed with a GET first (this is what the browser
+   * does when it loads the login page). The body is discarded; we only want the headers.
+   *
+   * Older/standalone controllers don't require this, so a failure here is not fatal —
+   * the login is attempted regardless.
+   */
+  private async primeCsrf(): Promise<void> {
+    try {
+      await this.request('GET', '/');
+    } catch {
+      /* offline or unreachable — login will surface the real error */
+    }
+  }
+
   async login(): Promise<void> {
     if (!this.cfg.host || !this.cfg.username || !this.cfg.password) {
       throw new UnifiError('UniFi connection is not configured (host, username, password)');
@@ -135,6 +156,7 @@ export class UnifiClient {
     }
     this.lastAuthAttempt = Date.now();
     this.reset();
+    await this.primeCsrf();
 
     const res = await this.request('POST', '/api/auth/login', {
       username: this.cfg.username,
@@ -160,7 +182,7 @@ export class UnifiClient {
       res = await this.request(method, path, body);
     }
     if (res.status < 200 || res.status >= 300) {
-      throw new UnifiError(apiErrorMessage(res));
+      throw new UnifiError(apiErrorMessage(res), res.status);
     }
     return res;
   }
@@ -181,16 +203,21 @@ export class UnifiClient {
    * re-read and sent back whole — a partial body would silently drop its other fields.
    */
   async setPortForwardEnabled(ruleId: string, enabled: boolean): Promise<void> {
-    const res = await this.authed('GET', `${this.basePath}/rest/portforward/${encodeURIComponent(ruleId)}`);
-    const rule = Array.isArray(res.json?.data) ? res.json.data[0] : null;
-    if (!rule || typeof rule._id !== 'string') {
-      throw new UnifiError(`Port-forward rule ${ruleId} no longer exists on the controller`);
+    const path = `${this.basePath}/rest/portforward/${encodeURIComponent(ruleId)}`;
+    const gone = new UnifiError(`Port-forward rule ${ruleId} no longer exists on the controller`, 404);
+    let res;
+    try {
+      res = await this.authed('GET', path);
+    } catch (err) {
+      // A deleted rule 404s; say so plainly rather than surfacing a bare status.
+      if (err instanceof UnifiError && err.status === 404) throw gone;
+      throw err;
     }
+    const rule = Array.isArray(res.json?.data) ? res.json.data[0] : null;
+    // Some firmware answers 200 with an empty data array instead of 404.
+    if (!rule || typeof rule._id !== 'string') throw gone;
     if (!!rule.enabled === enabled) return;
-    await this.authed('PUT', `${this.basePath}/rest/portforward/${encodeURIComponent(ruleId)}`, {
-      ...rule,
-      enabled,
-    });
+    await this.authed('PUT', path, { ...rule, enabled });
   }
 }
 
@@ -209,6 +236,13 @@ function loginErrorMessage(res: RawResponse): string {
   if (res.status === 401 || res.status === 400) {
     return 'UniFi rejected the login. Use a local UniFi admin account — cloud/Ubiquiti SSO logins cannot ' +
       'use this API.';
+  }
+  if (res.status === 403) {
+    // 403 (rather than 401) means the request was refused before the credentials were even
+    // examined — nearly always the CSRF handshake, occasionally a temporary IP block.
+    return 'UniFi refused the login request (HTTP 403). This usually means the console rejected the ' +
+      'CSRF handshake — check that the host and port point at the UniFi console itself and not a ' +
+      'reverse proxy. Repeated failed logins can also block the caller for a few minutes.';
   }
   if (res.status === 429) return 'UniFi is rate-limiting logins — wait a minute and try again.';
   return `UniFi login failed (HTTP ${res.status})`;

@@ -45,6 +45,8 @@ router.put('/config', asyncRoute(async (req, res) => {
       await unifiSync.test();
     } catch (err: any) {
       unifiSync.lastError = err?.message || String(err);
+      // Also log it: without this a failed setup leaves no trace on the server at all.
+      console.error('[unifi] connection test failed:', unifiSync.lastError);
     }
   }
   res.json({ config: maskedConfig() });
@@ -61,6 +63,7 @@ router.post('/test', asyncRoute(async (_req, res) => {
     res.json({ ok: true, rules, config: maskedConfig() });
   } catch (err: any) {
     unifiSync.lastError = err?.message || String(err);
+    console.error('[unifi] connection test failed:', unifiSync.lastError);
     res.json({ ok: false, error: unifiSync.lastError, rules: [], config: maskedConfig() });
   }
 }));
