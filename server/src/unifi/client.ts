@@ -70,7 +70,14 @@ export class UnifiClient {
 
   private request(method: string, path: string, body?: unknown): Promise<RawResponse> {
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const origin = `https://${this.cfg.host}${this.cfg.port && this.cfg.port !== 443 ? `:${this.cfg.port}` : ''}`;
+    // UniFi OS's CSRF protection inspects Origin/Referer as well as the token header, so
+    // present the same shape a browser on the console's own login page would.
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      Origin: origin,
+      Referer: `${origin}/login`,
+    };
     if (payload !== undefined) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = String(Buffer.byteLength(payload));
@@ -126,7 +133,28 @@ export class UnifiClient {
       }
     }
     const csrf = headers['x-csrf-token'] ?? headers['x-updated-csrf-token'];
-    if (typeof csrf === 'string' && csrf) this.csrfToken = csrf;
+    if (typeof csrf === 'string' && csrf) {
+      this.csrfToken = csrf;
+      return;
+    }
+    // UniFi OS doesn't reliably send the header. The token is also carried as a claim
+    // inside the TOKEN cookie's JWT payload, which is where the web UI reads it from.
+    const fromCookie = this.csrfFromTokenCookie();
+    if (fromCookie) this.csrfToken = fromCookie;
+  }
+
+  /** Pulls the `csrfToken` claim out of the TOKEN cookie's JWT payload. */
+  private csrfFromTokenCookie(): string {
+    const token = this.cookies.get('TOKEN');
+    if (!token) return '';
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      return typeof payload?.csrfToken === 'string' ? payload.csrfToken : '';
+    } catch {
+      return '';
+    }
   }
 
   /**
@@ -140,9 +168,15 @@ export class UnifiClient {
    */
   private async primeCsrf(): Promise<void> {
     try {
-      await this.request('GET', '/');
-    } catch {
-      /* offline or unreachable — login will surface the real error */
+      const res = await this.request('GET', '/');
+      // Consoles vary in how they hand out the token, so say what we actually got —
+      // without this a 403 later gives no clue which half of the handshake failed.
+      console.log(
+        `[unifi] prime GET / -> HTTP ${res.status}; cookies=[${[...this.cookies.keys()].join(',') || 'none'}]; ` +
+        `csrf=${this.csrfToken ? 'acquired' : 'NONE'}`
+      );
+    } catch (err: any) {
+      console.log(`[unifi] prime GET / failed: ${err?.message || err}`);
     }
   }
 
@@ -164,13 +198,17 @@ export class UnifiClient {
       remember: true,
     });
 
+    console.log(
+      `[unifi] login POST -> HTTP ${res.status}; sent csrf=${this.csrfToken ? 'yes' : 'no'}; ` +
+      `cookies=[${[...this.cookies.keys()].join(',') || 'none'}]`
+    );
     if (res.status === 200 && this.cookies.size > 0) {
       this.authFailures = 0;
       return;
     }
     this.authFailures++;
     this.reset();
-    throw new UnifiError(loginErrorMessage(res));
+    throw new UnifiError(loginErrorMessage(res), res.status);
   }
 
   /** Runs a call, logging in first if needed and once more if the session turned out to be stale. */
