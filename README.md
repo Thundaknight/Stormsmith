@@ -153,6 +153,9 @@ It only ever flips a rule's **enabled** switch. It never creates, edits, or dele
 - *"…two-factor authentication enabled"* — turn MFA off for that account, or make a separate one for Stormsmith.
 - *"UniFi refused the login request (HTTP 403)"* — the console rejected the request before checking the credentials. Point the host and port at the UniFi console itself rather than a reverse proxy in front of it. Repeated failed logins can also block the caller for a few minutes.
 - *"…self-signed certificate"* — untick **Verify TLS certificate**.
+- *"the configured Site does not exist"* / `api.err.NoSiteContext` — the **Site** field must be the site's name as shown in the UniFi UI (Stormsmith also accepts its internal id). Leave it as `default` for a single untouched site.
+
+If the account was only just created, log into the UniFi UI with it once before running the test — UniFi doesn't fully provision a new admin until its first sign-in.
 
 Only admins can configure the console or map rules to servers, regardless of per-server permissions.
 

@@ -137,6 +137,7 @@ export default function UnifiSettings() {
             <label>
               Site
               <input value={site} onChange={(e) => setSite(e.target.value)} placeholder="default" className="mono" />
+              <span className="hint">Leave as "default" unless you renamed your UniFi site or have more than one — then use the name shown in the UniFi UI.</span>
             </label>
             <label>
               Username

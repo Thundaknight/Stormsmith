@@ -57,11 +57,20 @@ export class UnifiError extends Error {
   }
 }
 
+export interface UnifiSite {
+  /** The internal id used in API paths (often a random 8-char string, not "default"). */
+  name: string;
+  /** The friendly name shown in the UniFi UI. */
+  desc: string;
+}
+
 export class UnifiClient {
   private cookies = new Map<string, string>();
   private csrfToken = '';
   private authFailures = 0;
   private lastAuthAttempt = 0;
+  /** The API-path site id, resolved from cfg.site (which may be a friendly name). */
+  private resolvedSite = '';
 
   constructor(private cfg: Pick<UnifiConfig, 'host' | 'port' | 'site' | 'username' | 'password' | 'verify_tls'>) {}
 
@@ -73,10 +82,55 @@ export class UnifiClient {
   reset(): void {
     this.cookies.clear();
     this.csrfToken = '';
+    this.resolvedSite = '';
   }
 
-  private get basePath(): string {
-    return `/proxy/network/api/s/${encodeURIComponent(this.cfg.site || 'default')}`;
+  private basePath(): string {
+    return `/proxy/network/api/s/${encodeURIComponent(this.resolvedSite || this.cfg.site || 'default')}`;
+  }
+
+  /** The sites (Network "sites") this account can see. */
+  async listSites(): Promise<UnifiSite[]> {
+    // UniFi OS proxies the Network app under /proxy/network; a standalone controller doesn't.
+    let res;
+    try {
+      res = await this.authed('GET', '/proxy/network/api/self/sites');
+    } catch (err) {
+      if (err instanceof UnifiError && err.status === 404) {
+        res = await this.authed('GET', '/api/self/sites');
+      } else {
+        throw err;
+      }
+    }
+    const data = res.json?.data;
+    if (!Array.isArray(data)) throw new UnifiError('Unexpected response listing UniFi sites');
+    return data
+      .filter((s: any) => s && typeof s.name === 'string')
+      .map((s: any) => ({ name: s.name, desc: String(s.desc ?? s.name) }));
+  }
+
+  /**
+   * A UniFi site has an internal id (used in `/api/s/<id>/`) and a separate friendly name
+   * shown in the UI — identical only on an untouched install. Accept either from the user
+   * and resolve to the id once per session.
+   */
+  private async ensureSite(): Promise<void> {
+    if (this.resolvedSite) return;
+    const want = (this.cfg.site || 'default').trim();
+    const sites = await this.listSites();
+    if (sites.length === 0) throw new UnifiError('This UniFi account has no Network sites');
+
+    const byId = sites.find((s) => s.name === want);
+    const byDesc = sites.find((s) => s.desc.toLowerCase() === want.toLowerCase());
+    const resolved = byId || byDesc || (sites.length === 1 ? sites[0] : null);
+    if (!resolved) {
+      const list = sites.map((s) => `${s.desc} (${s.name})`).join(', ');
+      throw new UnifiError(`UniFi site "${want}" not found on this console. Available: ${list}`);
+    }
+    this.resolvedSite = resolved.name;
+    if (resolved.name !== want) {
+      console.log(`[unifi] site "${want}" resolved to id "${resolved.name}" (${resolved.desc})`);
+    }
   }
 
   private request(method: string, path: string, body?: unknown): Promise<RawResponse> {
@@ -242,7 +296,8 @@ export class UnifiClient {
   }
 
   async listPortForwards(): Promise<PortForwardRule[]> {
-    const res = await this.authed('GET', `${this.basePath}/rest/portforward`);
+    await this.ensureSite();
+    const res = await this.authed('GET', `${this.basePath()}/rest/portforward`);
     const data = res.json?.data;
     if (!Array.isArray(data)) throw new UnifiError('Unexpected response listing port forwards');
     return data.filter((r: any) => r && typeof r._id === 'string').map((r: any) => ({
@@ -257,7 +312,8 @@ export class UnifiClient {
    * re-read and sent back whole — a partial body would silently drop its other fields.
    */
   async setPortForwardEnabled(ruleId: string, enabled: boolean): Promise<void> {
-    const path = `${this.basePath}/rest/portforward/${encodeURIComponent(ruleId)}`;
+    await this.ensureSite();
+    const path = `${this.basePath()}/rest/portforward/${encodeURIComponent(ruleId)}`;
     const gone = new UnifiError(`Port-forward rule ${ruleId} no longer exists on the controller`, 404);
     let res;
     try {
@@ -304,6 +360,11 @@ function loginErrorMessage(res: RawResponse): string {
 
 function apiErrorMessage(res: RawResponse): string {
   const msg = String(res.json?.meta?.msg || '').trim();
+  if (msg.includes('NoSiteContext') || msg.includes('api.err.NoSite')) {
+    return 'UniFi rejected the request: the configured Site does not exist on this console. ' +
+      'Leave Site blank to use the default, or enter the site name exactly as it appears in the UniFi UI.';
+  }
+  if (msg === 'api.err.LoginRequired') return 'UniFi session expired — retrying failed.';
   if (msg) return `UniFi API error: ${msg}`;
   return `UniFi API request failed (HTTP ${res.status})`;
 }
