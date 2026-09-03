@@ -130,6 +130,8 @@ class UnifiSync {
   async test(): Promise<AnnotatedRule[]> {
     if (!this.client) throw new Error('The UniFi integration is not enabled');
     this.client.reset();
+    // A deliberate human action — get past the reconcile-loop back-off.
+    await this.client.login(true);
     const rules = await this.listRules();
     this.connected = true;
     this.lastError = '';

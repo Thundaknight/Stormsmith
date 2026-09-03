@@ -40,6 +40,17 @@ interface RawResponse {
   json: any;
 }
 
+/** One-line description of who answered and what they said — for diagnosing a 403. */
+function describeResponse(res: RawResponse): string {
+  const server = res.headers['server'] || '?';
+  const ct = String(res.headers['content-type'] || '?').split(';')[0];
+  const setCookie = Array.isArray(res.headers['set-cookie'])
+    ? (res.headers['set-cookie'] as string[]).map((c) => c.split('=')[0]).join(',')
+    : 'none';
+  const bodySnippet = res.text.replace(/\s+/g, ' ').trim().slice(0, 200);
+  return `server=${server} content-type=${ct} set-cookie=[${setCookie}] body="${bodySnippet}"`;
+}
+
 export class UnifiError extends Error {
   constructor(message: string, public readonly status?: number) {
     super(message);
@@ -75,6 +86,8 @@ export class UnifiClient {
     // present the same shape a browser on the console's own login page would.
     const headers: Record<string, string> = {
       Accept: 'application/json',
+      // Node sends no User-Agent by default; some UniFi OS builds and proxies 403 that.
+      'User-Agent': 'Mozilla/5.0 (Stormsmith UniFi integration)',
       Origin: origin,
       Referer: `${origin}/login`,
     };
@@ -173,20 +186,21 @@ export class UnifiClient {
       // without this a 403 later gives no clue which half of the handshake failed.
       console.log(
         `[unifi] prime GET / -> HTTP ${res.status}; cookies=[${[...this.cookies.keys()].join(',') || 'none'}]; ` +
-        `csrf=${this.csrfToken ? 'acquired' : 'NONE'}`
+        `csrf=${this.csrfToken ? 'acquired' : 'NONE'}; ${describeResponse(res)}`
       );
     } catch (err: any) {
       console.log(`[unifi] prime GET / failed: ${err?.message || err}`);
     }
   }
 
-  async login(): Promise<void> {
+  /** `force` skips the failure back-off — used by the interactive "Test connection" action. */
+  async login(force = false): Promise<void> {
     if (!this.cfg.host || !this.cfg.username || !this.cfg.password) {
       throw new UnifiError('UniFi connection is not configured (host, username, password)');
     }
     // Bad credentials in a 60s reconcile loop would otherwise hammer the console into a lockout.
-    if (this.authFailures >= AUTH_FAILURE_LIMIT && Date.now() - this.lastAuthAttempt < AUTH_BACKOFF_MS) {
-      throw new UnifiError('Login is backing off after repeated failures — check the username and password');
+    if (!force && this.authFailures >= AUTH_FAILURE_LIMIT && Date.now() - this.lastAuthAttempt < AUTH_BACKOFF_MS) {
+      throw new UnifiError('Login is backing off after repeated failures — wait a minute, then try again');
     }
     this.lastAuthAttempt = Date.now();
     this.reset();
@@ -198,11 +212,13 @@ export class UnifiClient {
       remember: true,
     });
 
+    const ok = res.status === 200 && this.cookies.size > 0;
     console.log(
       `[unifi] login POST -> HTTP ${res.status}; sent csrf=${this.csrfToken ? 'yes' : 'no'}; ` +
-      `cookies=[${[...this.cookies.keys()].join(',') || 'none'}]`
+      `cookies=[${[...this.cookies.keys()].join(',') || 'none'}]` +
+      (ok ? '' : `; ${describeResponse(res)}`)
     );
-    if (res.status === 200 && this.cookies.size > 0) {
+    if (ok) {
       this.authFailures = 0;
       return;
     }
