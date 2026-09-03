@@ -68,7 +68,12 @@ carry it in parens (e.g. `... (1.0.30)`).
   space). For `game === 'azerothcore'`, RCON calls are transparently routed to `soap.ts` instead.
 - **`soap.ts`** — AzerothCore worldserver SOAP GM command client.
 - **`games/`** — per-game logic. `palworld.ts` = parser/serializer for the single-line
-  `OptionSettings=(...)` in `PalWorldSettings.ini` (quote/paren-aware). `azerothcore.ts` = direct
+  `OptionSettings=(...)` in `PalWorldSettings.ini` (quote/paren-aware). `valheim.ts` =
+  parse/serialize for the `adminlist.txt`/`bannedlist.txt`/`permittedlist.txt` ID lists,
+  Platform-User-ID validation, `ValheimRcon.dll` detection, and the POSIX-`sh` snippets
+  that locate the save dir / BepInEx plugins dir inside the container (no image-specific
+  paths hard-coded; `servers.ts` runs them via `execInContainer` and caches the result on
+  the server row). `azerothcore.ts` = direct
   `mysql2` reads of the acore_characters/acore_auth DBs to get real player/account lists with
   `mod-playerbots` bot accounts (prefix `rndbot`) filtered out — AzerothCore has no in-game command
   that does this. `players.ts` = the dispatch table mapping game -> how to list connected players.

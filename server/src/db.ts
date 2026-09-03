@@ -49,6 +49,8 @@ export function initDb(): void {
       bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot',
       address_mode TEXT NOT NULL DEFAULT 'auto',
       custom_address TEXT NOT NULL DEFAULT '',
+      valheim_save_dir TEXT NOT NULL DEFAULT '',
+      valheim_plugins_dir TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -198,6 +200,8 @@ export function initDb(): void {
   addColumn('bot_account_prefix', "bot_account_prefix TEXT NOT NULL DEFAULT 'rndbot'");
   addColumn('address_mode', "address_mode TEXT NOT NULL DEFAULT 'auto'");
   addColumn('custom_address', "custom_address TEXT NOT NULL DEFAULT ''");
+  addColumn('valheim_save_dir', "valheim_save_dir TEXT NOT NULL DEFAULT ''");
+  addColumn('valheim_plugins_dir', "valheim_plugins_dir TEXT NOT NULL DEFAULT ''");
 
   addColumnTo('users', 'status', "status TEXT NOT NULL DEFAULT 'active'");
   addColumnTo('users', 'discord_id', "discord_id TEXT NOT NULL DEFAULT ''");
@@ -358,6 +362,7 @@ const SERVER_FIELDS = [
   'broadcast_template', 'config_path', 'game_port', 'restart_enabled', 'restart_time', 'restart_mode',
   'restart_interval_hours', 'discord_show', 'discord_channel_id', 'db_host', 'db_port', 'db_user',
   'db_password', 'db_characters_db', 'db_auth_db', 'bot_account_prefix', 'address_mode', 'custom_address',
+  'valheim_save_dir', 'valheim_plugins_dir',
 ] as const;
 
 export function createServer(s: Omit<GameServer, 'id' | 'created_at'>): GameServer {

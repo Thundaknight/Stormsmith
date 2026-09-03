@@ -81,6 +81,17 @@ export const api = {
   getServerConfig: (id: number) =>
     request<{ path: string; settings: Record<string, string>; empty: boolean }>(
       'GET', `/api/servers/${id}/config`),
+
+  // Valheim (admin/ban/permitted lists + RCON-mod detection)
+  getValheimStatus: (id: number) =>
+    request<{ running: boolean; saveDir: string; pluginsDir: string; rconDetected: boolean; warning: string }>(
+      'GET', `/api/servers/${id}/valheim`),
+  getValheimLists: (id: number) =>
+    request<{ saveDir: string; lists: Record<'adminlist' | 'bannedlist' | 'permittedlist', string[]> }>(
+      'GET', `/api/servers/${id}/valheim-lists`),
+  saveValheimList: (id: number, list: string, ids: string[]) =>
+    request<{ ok: boolean; list: string; ids: string[]; appliesIn: string }>(
+      'PUT', `/api/servers/${id}/valheim-lists`, { list, ids }),
   saveServerConfig: (id: number, settings: Record<string, string>) =>
     request<{ ok: boolean; path: string; restartRequired: boolean }>(
       'PUT', `/api/servers/${id}/config`, { settings }),
@@ -103,8 +114,10 @@ export const api = {
 
   // mods
   listMods: (id: number, folder: string) =>
-    request<{ path: string; folder: string; running: boolean; mods: ModEntry[] }>(
-      'GET', `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}`),
+    request<{
+      path: string; folder: string; folders: Array<{ id: string; label: string; hint: string }>;
+      running: boolean; mods: ModEntry[];
+    }>('GET', `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}`),
   uploadMod: async (id: number, folder: string, file: File): Promise<{ ok: boolean; name: string }> => {
     const res = await fetch(
       `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}&filename=${encodeURIComponent(file.name)}`,

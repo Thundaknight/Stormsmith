@@ -6,15 +6,19 @@ import type { ModEntry } from '../types';
 interface Props {
   serverId: number;
   serverState: string;
+  /** Shown under the mod list — game-specific guidance. */
+  footer?: string;
 }
 
-const FOLDERS = [
-  { id: '~mods', label: 'Pak mods (~mods)', hint: 'Standard .pak mods go here.' },
-  { id: 'LogicMods', label: 'Logic mods (LogicMods)', hint: 'UE4SS/BP logic mod .pak files go here.' },
-];
+interface Folder {
+  id: string;
+  label: string;
+  hint: string;
+}
 
-export default function ModsPanel({ serverId, serverState }: Props) {
-  const [folder, setFolder] = useState('~mods');
+export default function ModsPanel({ serverId, serverState, footer }: Props) {
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [folder, setFolder] = useState('');
   const [mods, setMods] = useState<ModEntry[]>([]);
   const [path, setPath] = useState('');
   const [listedWhileRunning, setListedWhileRunning] = useState(true);
@@ -31,7 +35,9 @@ export default function ModsPanel({ serverId, serverState }: Props) {
       .then((r) => {
         setMods(r.mods);
         setPath(r.path);
+        setFolders(r.folders || []);
         setListedWhileRunning(r.running);
+        if (!folder && r.folder) setFolder(r.folder);
       })
       .catch((err) => setError(err.message));
   }, [serverId, folder]);
@@ -68,7 +74,7 @@ export default function ModsPanel({ serverId, serverState }: Props) {
     }
   };
 
-  const folderInfo = FOLDERS.find((f) => f.id === folder)!;
+  const folderInfo = folders.find((f) => f.id === folder);
 
   return (
     <div className="card">
@@ -78,9 +84,11 @@ export default function ModsPanel({ serverId, serverState }: Props) {
       </div>
 
       <div className="mods-toolbar">
-        <select value={folder} onChange={(e) => setFolder(e.target.value)}>
-          {FOLDERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-        </select>
+        {folders.length > 1 && (
+          <select value={folder} onChange={(e) => setFolder(e.target.value)}>
+            {folders.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -93,7 +101,7 @@ export default function ModsPanel({ serverId, serverState }: Props) {
         </button>
         <button className="btn" onClick={load}>Refresh</button>
       </div>
-      <p className="hint">{folderInfo.hint}</p>
+      {folderInfo?.hint && <p className="hint">{folderInfo.hint}</p>}
 
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-ok">{notice}</div>}
@@ -129,11 +137,7 @@ export default function ModsPanel({ serverId, serverState }: Props) {
         </table>
       )}
 
-      <p className="hint">
-        Mods take effect after a server restart. Note that Palworld's official mod workshop only supports Windows
-        servers — on Linux/Docker servers, use classic .pak mods placed in these folders, and make sure the mods
-        you install are marked as server-compatible.
-      </p>
+      {footer && <p className="hint">{footer}</p>}
     </div>
   );
 }

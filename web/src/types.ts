@@ -66,6 +66,8 @@ export interface GameServer {
   db_characters_db?: string;
   db_auth_db?: string;
   bot_account_prefix?: string;
+  valheim_save_dir?: string;
+  valheim_plugins_dir?: string;
   unifi_rule_ids?: string[];
   unifi_warning?: string;
   created_at?: string;
@@ -242,7 +244,10 @@ export const GAME_PRESETS: Record<string, GamePreset> = {
   palworld: { label: 'Palworld', rconPort: 25575, gamePort: 8211, broadcast: 'Broadcast {message_nbsp}', supportsConsole: true },
   minecraft: { label: 'Minecraft', rconPort: 25575, gamePort: 25565, broadcast: 'say {message}', supportsConsole: true },
   satisfactory: { label: 'Satisfactory', rconPort: 0, gamePort: 7777, broadcast: '', supportsConsole: false },
-  valheim: { label: 'Valheim', rconPort: 0, gamePort: 2456, broadcast: '', supportsConsole: false },
+  // supportsConsole stays false: Valheim only gets a console when a BepInEx RCON mod
+  // (ValheimRcon) is detected on the server, handled per-server in the UI. The broadcast
+  // template is ValheimRcon's `say` so scheduled-restart warnings work once RCON is set up.
+  valheim: { label: 'Valheim', rconPort: 2458, gamePort: 2456, broadcast: 'say {message}', supportsConsole: false },
   rust: { label: 'Rust', rconPort: 28016, gamePort: 28015, broadcast: 'say {message}', supportsConsole: true },
   ark: { label: 'ARK: Survival', rconPort: 27020, gamePort: 7777, broadcast: 'ServerChat {message}', supportsConsole: true },
   '7dtd': { label: '7 Days to Die', rconPort: 8081, gamePort: 26900, broadcast: 'say "{message}"', supportsConsole: true },

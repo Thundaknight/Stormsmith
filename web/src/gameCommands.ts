@@ -196,6 +196,82 @@ export const GAME_COMMANDS: Record<string, GameCommand[]> = {
       destructive: true,
     },
   ],
+  /**
+   * ValheimRcon (BepInEx plugin) commands, verified against
+   * https://github.com/Tristan-dvr/ValheimRcon/blob/master/commands.md
+   * Only available when Stormsmith detects ValheimRcon.dll on the server. IDs are
+   * Platform User IDs (Steam_7656…); the parser takes the rest of the line as text.
+   */
+  valheim: [
+    {
+      command: 'players',
+      label: 'Show Players',
+      description: 'List online players with their positions and zones.',
+      params: [],
+    },
+    {
+      command: 'serverStats',
+      label: 'Server Stats',
+      description: 'Player count, FPS, memory and world data.',
+      params: [],
+    },
+    {
+      command: 'save',
+      label: 'Save World',
+      description: 'Save the current world state.',
+      params: [],
+    },
+    {
+      command: 'say',
+      label: 'Broadcast (chat)',
+      description: 'Send a chat message to all players.',
+      params: [{ name: 'message', placeholder: 'Message to all players', required: true }],
+    },
+    {
+      command: 'showMessage',
+      label: 'Broadcast (screen)',
+      description: 'Show a centered on-screen message to all players.',
+      params: [{ name: 'message', placeholder: 'Message to show', required: true }],
+    },
+    {
+      command: 'kick',
+      label: 'Kick Player',
+      description: 'Remove a player from the server.',
+      params: [{ name: 'player', placeholder: 'Player name or Steam ID', required: true }],
+    },
+    {
+      command: 'ban',
+      label: 'Ban Player',
+      description: 'Ban a player by name or Steam ID (also writes bannedlist.txt).',
+      params: [{ name: 'player', placeholder: 'Player name or Steam ID', required: true }],
+      destructive: true,
+    },
+    {
+      command: 'unban',
+      label: 'Unban Player',
+      description: 'Remove a ban by name or Steam ID.',
+      params: [{ name: 'player', placeholder: 'Player name or Steam ID', required: true }],
+    },
+    {
+      command: 'banlist',
+      label: 'Show Bans',
+      description: 'List banned players.',
+      params: [],
+    },
+    {
+      command: 'adminlist',
+      label: 'Show Admins',
+      description: 'List server administrators.',
+      params: [],
+    },
+    {
+      command: 'disconnectAll',
+      label: 'Disconnect Everyone',
+      description: 'Kick every connected player at once (they can rejoin).',
+      params: [],
+      destructive: true,
+    },
+  ],
 };
 
 export function buildCommand(cmd: GameCommand, values: Record<string, string>): string {

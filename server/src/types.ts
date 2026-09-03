@@ -47,6 +47,8 @@ export interface GameServer {
   bot_account_prefix: string;
   address_mode: string; // 'auto' | 'custom' | 'hidden'
   custom_address: string;
+  valheim_save_dir: string; // container path to the Valheim save dir (blank = auto-probe)
+  valheim_plugins_dir: string; // container path to BepInEx/plugins (blank = auto-probe)
   created_at: string;
 }
 

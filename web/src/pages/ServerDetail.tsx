@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import AzerothUserManagement from '../components/AzerothUserManagement';
+import ValheimAdminLists from '../components/ValheimAdminLists';
 import CopyButton from '../components/CopyButton';
 import CustomFields from '../components/CustomFields';
 import ModsPanel from '../components/ModsPanel';
@@ -59,6 +60,9 @@ export default function ServerDetail() {
   const [unifiRules, setUnifiRules] = useState<UnifiRule[]>([]);
   const [unifiEnabled, setUnifiEnabled] = useState(false);
   const [selectedUnifiRules, setSelectedUnifiRules] = useState<string[]>([]);
+  const [valheimStatus, setValheimStatus] = useState<
+    { rconDetected: boolean; pluginsDir: string; saveDir: string; warning: string } | null
+  >(null);
   const [settingsNotice, setSettingsNotice] = useState('');
 
   const initForm = useCallback((s: GameServer) => {
@@ -86,6 +90,8 @@ export default function ServerDetail() {
       bot_account_prefix: s.bot_account_prefix || 'rndbot',
       address_mode: s.address_mode || 'auto',
       custom_address: s.custom_address || '',
+      valheim_save_dir: s.valheim_save_dir || '',
+      valheim_plugins_dir: s.valheim_plugins_dir || '',
     });
     setRestartEnabled(!!s.restart_enabled);
     setDiscordShow(s.discord_show !== false);
@@ -113,6 +119,15 @@ export default function ServerDetail() {
       }).catch(() => {});
     }
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (server?.game !== 'valheim') return;
+    api.getValheimStatus(serverId)
+      .then((r) => setValheimStatus({
+        rconDetected: r.rconDetected, pluginsDir: r.pluginsDir, saveDir: r.saveDir, warning: r.warning,
+      }))
+      .catch(() => setValheimStatus(null));
+  }, [server?.game, serverId]);
 
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -241,16 +256,19 @@ export default function ServerDetail() {
   };
 
   const canConfigure = isAdmin || server.can_configure;
+  const valheimRcon = !!valheimStatus?.rconDetected;
   const tabs: Array<{ id: Tab; label: string }> = [{ id: 'controls', label: 'Controls' }];
   if (server.game === 'azerothcore') tabs.push({ id: 'accounts', label: 'User Management' });
-  if (canConfigure && server.game === 'palworld') {
-    tabs.push({ id: 'config', label: 'Server Config' });
+  if (canConfigure && server.game === 'valheim') tabs.push({ id: 'accounts', label: 'Admin & Bans' });
+  if (canConfigure && server.game === 'palworld') tabs.push({ id: 'config', label: 'Server Config' });
+  if (canConfigure && (server.game === 'palworld' || server.game === 'valheim')) {
     tabs.push({ id: 'mods', label: 'Mods' });
   }
   if (canConfigure) tabs.push({ id: 'settings', label: 'Settings' });
 
   const commands = GAME_COMMANDS[server.game];
-  const supportsConsole = gameSupportsConsole(server.game);
+  // Valheim has no console of its own — it only appears when a BepInEx RCON mod is detected.
+  const supportsConsole = gameSupportsConsole(server.game) || valheimRcon;
 
   return (
     <div>
@@ -344,6 +362,17 @@ export default function ServerDetail() {
                   {players.map((p) => <span key={p} className="player-chip">{p}</span>)}
                 </div>
               )}
+            </div>
+          )}
+
+          {server.game === 'valheim' && !valheimRcon && canConfigure && (
+            <div className="card">
+              <h2>Live console</h2>
+              <p className="muted">
+                Vanilla Valheim has no remote console. Install the <span className="mono">ValheimRcon</span> BepInEx
+                plugin (Mods tab) and a console, broadcasts, and a player list appear here automatically. Admin and
+                ban management works without it — see the Admin &amp; Bans tab.
+              </p>
             </div>
           )}
 
@@ -447,12 +476,28 @@ export default function ServerDetail() {
         )
       )}
 
+      {tab === 'accounts' && server.game === 'valheim' && canConfigure && (
+        <ValheimAdminLists serverId={server.id} />
+      )}
+
       {tab === 'config' && canConfigure && server.game === 'palworld' && (
         <PalworldSettings serverId={server.id} serverState={state} />
       )}
 
       {tab === 'mods' && canConfigure && server.game === 'palworld' && (
-        <ModsPanel serverId={server.id} serverState={state} />
+        <ModsPanel
+          serverId={server.id}
+          serverState={state}
+          footer="Mods take effect after a server restart. Palworld's official mod workshop only supports Windows servers — on Linux/Docker use classic .pak mods placed in these folders, and make sure they're marked server-compatible."
+        />
+      )}
+
+      {tab === 'mods' && canConfigure && server.game === 'valheim' && (
+        <ModsPanel
+          serverId={server.id}
+          serverState={state}
+          footer="BepInEx plugin DLLs (and their mod folders) go here. BepInEx itself must be enabled on the container image first. Mods take effect after a server restart."
+        />
       )}
 
       {tab === 'settings' && canConfigure && (
@@ -535,6 +580,33 @@ export default function ServerDetail() {
                 <input value={form.config_path || ''} onChange={(e) => setForm({ ...form, config_path: e.target.value })} placeholder="Auto-detected for Palworld" />
                 <span className="hint">Path inside the game container. Leave blank to auto-detect.</span>
               </label>
+              {form.game === 'valheim' && (
+                <>
+                  <label className="span-2">
+                    Valheim save folder
+                    <input
+                      className="mono"
+                      value={form.valheim_save_dir || ''}
+                      onChange={(e) => setForm({ ...form, valheim_save_dir: e.target.value })}
+                      placeholder="Auto-probed — the folder containing adminlist.txt"
+                    />
+                    <span className="hint">Only set this if the Admin &amp; Bans tab can't find it automatically.</span>
+                  </label>
+                  <label className="span-2">
+                    BepInEx plugins folder
+                    <input
+                      className="mono"
+                      value={form.valheim_plugins_dir || ''}
+                      onChange={(e) => setForm({ ...form, valheim_plugins_dir: e.target.value })}
+                      placeholder="Auto-probed — the BepInEx/plugins directory"
+                    />
+                    <span className="hint">
+                      Where mod DLLs are uploaded, and where Stormsmith looks for ValheimRcon.
+                      {valheimStatus?.warning ? ` (${valheimStatus.warning})` : ''}
+                    </span>
+                  </label>
+                </>
+              )}
               {supportsConsole && (
                 <label className="span-2">
                   Broadcast command template

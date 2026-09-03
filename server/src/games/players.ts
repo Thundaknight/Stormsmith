@@ -41,6 +41,25 @@ const RCON_QUERIES: Record<string, RconPlayerQuery> = {
         .filter(Boolean);
     },
   },
+  valheim: {
+    // ValheimRcon's 'players' command — needs a BepInEx RCON mod on the server.
+    command: 'players',
+    /**
+     * One player per line, "name" followed by position/zone details. The exact column
+     * layout isn't documented, so take the leading name token and stop at the first
+     * clear delimiter. Header/summary lines ("Players (2):", "No players online") are
+     * dropped. Verify against a live server if the chips look wrong.
+     */
+    parse(response) {
+      return response
+        .trim()
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !/^(players?\b|no players|online players)/i.test(line))
+        .map((line) => line.split(/\s{2,}|\t| \(|,|;| - |: /)[0].trim())
+        .filter(Boolean);
+    },
+  },
 };
 
 export function supportsPlayerList(server: GameServer): boolean {

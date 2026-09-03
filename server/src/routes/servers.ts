@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import path from 'path';
 import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
@@ -13,6 +14,10 @@ import {
 import { discordBot } from '../discord/bot';
 import { fetchAzerothAccounts, fetchAzerothCharacters, hasDbConfig } from '../games/azerothcore';
 import { applySettings, parseOptionSettings } from '../games/palworld';
+import {
+  findPluginsDirScript, findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
+} from '../games/valheim';
+import type { ValheimList } from '../games/valheim';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
@@ -78,6 +83,8 @@ function publicServer(s: GameServer, includeSecrets: boolean) {
     db_characters_db: s.db_characters_db,
     db_auth_db: s.db_auth_db,
     bot_account_prefix: s.bot_account_prefix,
+    valheim_save_dir: s.valheim_save_dir,
+    valheim_plugins_dir: s.valheim_plugins_dir,
     unifi_rule_ids: listUnifiRules(s.id).map((r) => r.rule_id),
     unifi_warning: unifiSync.warningFor(s.id),
   };
@@ -140,6 +147,8 @@ router.post('/', requireAdmin, (req, res) => {
       bot_account_prefix: req.body?.bot_account_prefix || 'rndbot',
       address_mode: 'auto',
       custom_address: '',
+      valheim_save_dir: '',
+      valheim_plugins_dir: '',
     });
     monitor.refresh().catch(() => {});
     discordBot.refreshStatus();
@@ -213,6 +222,10 @@ router.put('/:id', requireServerPermission('configure'), (req, res) => {
         ? b.address_mode
         : server.address_mode,
     custom_address: b.custom_address !== undefined ? String(b.custom_address).trim() : server.custom_address,
+    valheim_save_dir:
+      b.valheim_save_dir !== undefined ? String(b.valheim_save_dir).trim() : server.valheim_save_dir,
+    valheim_plugins_dir:
+      b.valheim_plugins_dir !== undefined ? String(b.valheim_plugins_dir).trim() : server.valheim_plugins_dir,
   });
   // Port forwarding is network-level, so it stays admin-only even for users granted 'configure'
   // on this server — same rule as Import Server / Users / Discord Bot.
@@ -504,27 +517,80 @@ router.put('/:id/config', requireServerPermission('configure'), asyncRoute(async
   res.json({ ok: true, path: configPath, restartRequired: state === 'running' });
 }));
 
-// ---- Mods (Palworld) ----
+// ---- Mods ----
 
-const MOD_FOLDERS = ['~mods', 'LogicMods'] as const;
-type ModFolder = (typeof MOD_FOLDERS)[number];
-
-function modFolder(req: { query: Record<string, unknown> }): ModFolder {
-  const f = String(req.query.folder || '~mods');
-  return (MOD_FOLDERS as readonly string[]).includes(f) ? (f as ModFolder) : '~mods';
+/** Rejects a path we can't safely interpolate into a shell command. */
+function shArg(p: string): string {
+  if (p.includes("'") || p.includes('\n')) {
+    throw Object.assign(new Error('Invalid container path'), { statusCode: 400 });
+  }
+  return `'${p}'`;
 }
 
-/** The Paks directory, derived from the (auto-detected) config file location. */
-async function resolvePaksDir(server: GameServer): Promise<string> {
-  if (server.game !== 'palworld') {
-    throw Object.assign(new Error('Mod management is currently only supported for Palworld servers'), { statusCode: 400 });
-  }
+interface ModLayout {
+  /** Parent dir passed to putContainerFile; `${base}/${folder}` is the operating dir. */
+  base: string;
+  folders: Array<{ id: string; label: string; hint: string }>;
+  defaultFolder: string;
+}
+
+/** The Palworld Paks directory, derived from the (auto-detected) config file location. */
+async function resolvePalworldPaksDir(server: GameServer): Promise<string> {
   const { path: configPath } = await resolveConfigPath(server);
   const idx = configPath.indexOf('/Pal/Saved/');
   if (idx === -1) {
     throw Object.assign(new Error('Could not derive the Paks directory from the config path'), { statusCode: 500 });
   }
   return `${configPath.slice(0, idx)}/Pal/Content/Paks`;
+}
+
+/** The Valheim BepInEx plugins directory — a manual override, else probed once and cached. */
+async function resolveValheimPluginsDir(server: GameServer): Promise<string> {
+  if (server.valheim_plugins_dir) return server.valheim_plugins_dir;
+  if (monitor.get(server.id)?.state !== 'running') {
+    throw Object.assign(
+      new Error('Start the container once so Stormsmith can locate the BepInEx plugins folder, or set it in Settings.'),
+      { statusCode: 409 }
+    );
+  }
+  const result = await execInContainer(server.container_name, ['sh', '-c', findPluginsDirScript()]);
+  const dir = result.stdout.trim().split(/\r?\n/)[0].trim();
+  if (!dir) {
+    throw Object.assign(
+      new Error('Could not find a BepInEx/plugins folder in the container. Install BepInEx, or set the path in Settings.'),
+      { statusCode: 404 }
+    );
+  }
+  updateServer(server.id, { ...server, valheim_plugins_dir: dir });
+  return dir;
+}
+
+async function resolveModLayout(server: GameServer): Promise<ModLayout> {
+  if (server.game === 'palworld') {
+    return {
+      base: await resolvePalworldPaksDir(server),
+      folders: [
+        { id: '~mods', label: 'Pak mods (~mods)', hint: 'Standard .pak mods go here.' },
+        { id: 'LogicMods', label: 'Logic mods (LogicMods)', hint: 'UE4SS/BP logic mod .pak files go here.' },
+      ],
+      defaultFolder: '~mods',
+    };
+  }
+  if (server.game === 'valheim') {
+    const pluginsDir = await resolveValheimPluginsDir(server);
+    const folderId = path.posix.basename(pluginsDir) || 'plugins';
+    return {
+      base: path.posix.dirname(pluginsDir),
+      folders: [{ id: folderId, label: 'BepInEx plugins', hint: 'BepInEx plugin .dll files (and mod folders) go here.' }],
+      defaultFolder: folderId,
+    };
+  }
+  throw Object.assign(new Error('Mod management is not available for this game'), { statusCode: 400 });
+}
+
+function pickModFolder(layout: ModLayout, req: { query: Record<string, unknown> }): string {
+  const f = String(req.query.folder || layout.defaultFolder);
+  return layout.folders.some((x) => x.id === f) ? f : layout.defaultFolder;
 }
 
 function safeModFileName(name: string): string {
@@ -542,15 +608,16 @@ router.get('/:id/mods', requireServerPermission('configure'), asyncRoute(async (
     res.status(404).json({ error: 'Server not found' });
     return;
   }
-  const paksDir = await resolvePaksDir(server);
-  const folder = modFolder(req);
+  const layout = await resolveModLayout(server);
+  const folder = pickModFolder(layout, req);
+  const dir = `${layout.base}/${folder}`;
   const running = monitor.get(server.id)?.state === 'running';
   if (!running) {
-    res.json({ path: `${paksDir}/${folder}`, folder, running: false, mods: [] });
+    res.json({ path: dir, folder, folders: layout.folders, running: false, mods: [] });
     return;
   }
-  const mods = await listContainerDir(server.container_name, `${paksDir}/${folder}`);
-  res.json({ path: `${paksDir}/${folder}`, folder, running: true, mods });
+  const mods = await listContainerDir(server.container_name, dir);
+  res.json({ path: dir, folder, folders: layout.folders, running: true, mods });
 }));
 
 /** Upload a mod file (works even while the container is stopped). */
@@ -570,9 +637,9 @@ router.post(
       res.status(400).json({ error: 'Empty upload' });
       return;
     }
-    const paksDir = await resolvePaksDir(server);
-    const folder = modFolder(req);
-    await putContainerFile(server.container_name, paksDir, folder, fileName, body);
+    const layout = await resolveModLayout(server);
+    const folder = pickModFolder(layout, req);
+    await putContainerFile(server.container_name, layout.base, folder, fileName, body);
     res.json({ ok: true, name: fileName, size: body.length, folder });
   })
 );
@@ -589,14 +656,129 @@ router.delete('/:id/mods/:filename', requireServerPermission('configure'), async
     return;
   }
   const fileName = safeModFileName(req.params.filename);
-  const paksDir = await resolvePaksDir(server);
-  const folder = modFolder(req);
-  const result = await execInContainer(server.container_name, ['rm', '-rf', `${paksDir}/${folder}/${fileName}`]);
+  const layout = await resolveModLayout(server);
+  const folder = pickModFolder(layout, req);
+  const result = await execInContainer(server.container_name, ['rm', '-rf', `${layout.base}/${folder}/${fileName}`]);
   if (result.exitCode !== 0) {
     res.status(500).json({ error: `Delete failed: ${result.stderr || 'unknown error'}` });
     return;
   }
   res.json({ ok: true });
+}));
+
+// ---- Valheim: admin / banned / permitted lists + RCON-mod detection ----
+
+/** The Valheim save directory (holds adminlist.txt etc.) — manual override, else probed once. */
+async function resolveValheimSaveDir(server: GameServer): Promise<string> {
+  if (server.valheim_save_dir) return server.valheim_save_dir;
+  if (monitor.get(server.id)?.state !== 'running') {
+    throw Object.assign(
+      new Error('Start the container once so Stormsmith can locate the save folder, or set it in Settings.'),
+      { statusCode: 409 }
+    );
+  }
+  const result = await execInContainer(server.container_name, ['sh', '-c', findSaveDirScript()]);
+  const dir = result.stdout.trim().split(/\r?\n/)[0].trim();
+  if (!dir) {
+    throw Object.assign(
+      new Error('Could not locate the Valheim save folder in the container. Set the save directory in Settings.'),
+      { statusCode: 404 }
+    );
+  }
+  updateServer(server.id, { ...server, valheim_save_dir: dir });
+  return dir;
+}
+
+function requireValheim(server: GameServer | undefined, res: express.Response): server is GameServer {
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return false;
+  }
+  if (server.game !== 'valheim') {
+    res.status(400).json({ error: 'Not a Valheim server' });
+    return false;
+  }
+  return true;
+}
+
+/** Resolved paths + whether the ValheimRcon plugin is present (drives the Tier-2 UI). */
+router.get('/:id/valheim', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!requireValheim(server, res)) return;
+  const running = monitor.get(server.id)?.state === 'running';
+
+  let pluginsDir = server.valheim_plugins_dir;
+  let rconDetected = false;
+  let warning = '';
+  try {
+    pluginsDir = await resolveValheimPluginsDir(server);
+    if (running) {
+      const found = await execInContainer(server.container_name, [
+        'sh', '-c', `find ${shArg(pluginsDir)} -maxdepth 3 -iname 'ValheimRcon.dll' 2>/dev/null | head -n1`,
+      ]);
+      rconDetected = found.stdout.trim().length > 0;
+    }
+  } catch (err: any) {
+    warning = err?.message || String(err);
+  }
+  res.json({
+    running,
+    saveDir: server.valheim_save_dir,
+    pluginsDir,
+    rconDetected,
+    warning,
+  });
+}));
+
+/** The three permission lists, one Platform User ID per row. */
+router.get('/:id/valheim-lists', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!requireValheim(server, res)) return;
+  const dir = await resolveValheimSaveDir(server);
+  const lists: Record<string, string[]> = {};
+  for (const list of VALHEIM_LISTS) {
+    try {
+      lists[list] = parseIdList(await readContainerFile(server.container_name, `${dir}/${list}.txt`)).ids;
+    } catch {
+      lists[list] = []; // file not written yet — that's fine
+    }
+  }
+  res.json({ saveDir: dir, lists });
+}));
+
+/** Replace one list. Body: { list: 'adminlist'|'bannedlist'|'permittedlist', ids: string[] }. */
+router.put('/:id/valheim-lists', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!requireValheim(server, res)) return;
+
+  const list = String(req.body?.list || '') as ValheimList;
+  if (!(VALHEIM_LISTS as readonly string[]).includes(list)) {
+    res.status(400).json({ error: `list must be one of: ${VALHEIM_LISTS.join(', ')}` });
+    return;
+  }
+  const rawIds: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map((x: unknown) => String(x).trim()) : [];
+  const ids = [...new Set(rawIds.filter(Boolean))];
+  const invalid = ids.filter((id) => !isValidValheimId(id));
+  if (invalid.length) {
+    res.status(400).json({ error: `Not valid Platform User IDs (expected e.g. Steam_7656…): ${invalid.join(', ')}` });
+    return;
+  }
+
+  const dir = await resolveValheimSaveDir(server);
+  const filePath = `${dir}/${list}.txt`;
+  let header = '';
+  try {
+    header = parseIdList(await readContainerFile(server.container_name, filePath)).header;
+  } catch {
+    /* new file */
+  }
+  await writeContainerFile(server.container_name, filePath, serializeIdList({ header, ids }));
+  res.json({
+    ok: true,
+    list,
+    ids,
+    appliesIn: list === 'bannedlist' ? 'within ~30 seconds' : 'when the affected player next connects',
+  });
 }));
 
 export default router;
