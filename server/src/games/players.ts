@@ -42,21 +42,29 @@ const RCON_QUERIES: Record<string, RconPlayerQuery> = {
     },
   },
   valheim: {
-    // ValheimRcon's 'players' command — needs a BepInEx RCON mod on the server.
+    // ValheimRcon's 'players' command — needs the ValheimRcon BepInEx mod on the server.
     command: 'players',
     /**
-     * One player per line, "name" followed by position/zone details. The exact column
-     * layout isn't documented, so take the leading name token and stop at the first
-     * clear delimiter. Header/summary lines ("Players (2):", "No players online") are
-     * dropped. Verify against a live server if the chips look wrong.
+     * ValheimRcon (Tristan-dvr) replies with a summary line then one line per peer:
+     *
+     *   Online 2
+     *   Alice Steam ID:76561198... Position: (x, y, z) Zone: (i, j) Player ID:1 HP:25/25 ...
+     *   Bob Steam ID:76561198... Position: ...
+     *
+     * The player name is everything before " Steam ID:" (names may contain spaces).
+     * The "Online N" line is a count header, not a player — dropping it is what keeps
+     * an empty server ("Online 0") from showing a phantom player.
      */
     parse(response) {
       return response
         .trim()
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter((line) => line && !/^(players?\b|no players|online players)/i.test(line))
-        .map((line) => line.split(/\s{2,}|\t| \(|,|;| - |: /)[0].trim())
+        .filter((line) => line && !/^online\s+\d+$/i.test(line) && !/^no players/i.test(line))
+        .map((line) => {
+          const m = line.match(/^(.+?)\s+Steam ID:/i);
+          return (m ? m[1] : line.split(/\s{2,}|\t/)[0]).trim();
+        })
         .filter(Boolean);
     },
   },

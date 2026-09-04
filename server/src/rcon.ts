@@ -116,7 +116,11 @@ export function sendRconCommand(server: GameServer, command: string): Promise<st
     socket.on('close', () => {
       // Some servers close the socket right after responding
       if (phase === 'command' && bodies.length > 0) settle(null);
-      else settle(new Error('RCON connection closed unexpectedly'));
+      else settle(new Error(
+        phase === 'auth'
+          ? 'RCON connection closed during authentication — the server accepted the connection then dropped it. For Valheim/ValheimRcon this usually means the client IP is not in the mod\'s "Whitelist IP mask", or the wrong RCON port is configured.'
+          : 'RCON connection closed unexpectedly'
+      ));
     });
 
     socket.on('data', (chunk) => {

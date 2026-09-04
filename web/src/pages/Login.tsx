@@ -62,7 +62,8 @@ export default function Login() {
   if (needsSetup === null) return <div className="center-screen">Loading…</div>;
 
   return (
-    <div className="center-screen">
+    <div className="center-screen login-screen">
+      <div className="storm-lines" aria-hidden="true" />
       <form className="card login-card" onSubmit={submit}>
         <div className="brand login-brand">
           <span className="brand-icon">⚡</span>
