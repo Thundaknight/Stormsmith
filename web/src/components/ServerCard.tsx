@@ -49,7 +49,7 @@ export default function ServerCard({ server, onError, onDelayed }: Props) {
   const hasStats = running && server.cpuPercent != null;
 
   return (
-    <div className="card server-card">
+    <div className={`card server-card server-card-${server.state}`}>
       <div className="server-card-head">
         <div>
           <Link to={`/servers/${server.id}`} className="server-name">{server.name}</Link>
