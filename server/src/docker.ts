@@ -133,6 +133,49 @@ export async function putContainerFile(
   await container.putArchive(Buffer.concat(chunks), { path: parentDir });
 }
 
+/**
+ * Writes many files into a container in one shot via the archive API. Each entry's `path`
+ * is absolute inside the container; parent directories are created as needed. Works on a
+ * stopped container.
+ */
+export async function putContainerFiles(
+  containerName: string,
+  files: Array<{ path: string; content: Uint8Array }>
+): Promise<void> {
+  if (files.length === 0) return;
+  const container = docker.getContainer(containerName);
+  const pack = tar.pack();
+  const chunks: Buffer[] = [];
+  pack.on('data', (c: Buffer) => chunks.push(c));
+  const drained = new Promise<void>((resolve, reject) => {
+    pack.on('end', resolve);
+    pack.on('error', reject);
+  });
+  // tar-stream needs each entry's callback to fire before the next entry is added.
+  const addEntry = (header: tar.Headers, body?: Buffer) =>
+    new Promise<void>((resolve, reject) => {
+      pack.entry(header, body ?? Buffer.alloc(0), (err) => (err ? reject(err) : resolve()));
+    });
+
+  const dirs = new Set<string>();
+  for (const f of files) {
+    // Entries are relative; putArchive to '/' restores the absolute path.
+    const rel = f.path.replace(/^\/+/, '');
+    const parts = rel.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join('/') + '/';
+      if (!dirs.has(dir)) {
+        dirs.add(dir);
+        await addEntry({ name: dir, type: 'directory', mode: 0o755 });
+      }
+    }
+    await addEntry({ name: rel, mode: 0o644 }, Buffer.from(f.content));
+  }
+  pack.finalize();
+  await drained;
+  await container.putArchive(Buffer.concat(chunks), { path: '/' });
+}
+
 /** When the container's current run started (ISO timestamp), for uptime display. */
 export async function getStartedAt(containerName: string): Promise<string | null> {
   const info = await docker.getContainer(containerName).inspect();

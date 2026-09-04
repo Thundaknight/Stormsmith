@@ -8,9 +8,10 @@ import {
   setCustomFields, setUnifiRules, updateServer,
 } from '../db';
 import { resolveDisplayAddress } from '../address';
+import { unzipSync } from 'fflate';
 import {
   execInContainer, getStats, listContainerDir, listContainers, performAction,
-  putContainerFile, readContainerFile, writeContainerFile,
+  putContainerFile, putContainerFiles, readContainerFile, writeContainerFile,
 } from '../docker';
 import { discordBot } from '../discord/bot';
 import { fetchAzerothAccounts, fetchAzerothCharacters, hasDbConfig } from '../games/azerothcore';
@@ -20,6 +21,7 @@ import {
   findPluginsDirScript, findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
 } from '../games/valheim';
 import type { ValheimList } from '../games/valheim';
+import { packageNameFromZip, planFlatZip, planThunderstoreZip } from '../games/thunderstore';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
@@ -692,9 +694,42 @@ router.post(
     }
     const layout = await resolveModLayout(server);
     const folder = pickModFolder(layout, req);
+
+    if (fileName.toLowerCase().endsWith('.zip')) {
+      let extracted: string[];
+      let skipped: string[];
+      try {
+        const entries = Object.entries(unzipSync(new Uint8Array(body))).map(([name, content]) => ({ name, content }));
+        const targetDir = `${layout.base}/${folder}`;
+        const plan = server.game === 'valheim'
+          ? planThunderstoreZip(entries, {
+              pluginsDir: targetDir,
+              bepinexDir: path.posix.dirname(targetDir),
+              packageName: packageNameFromZip(fileName),
+            })
+          : planFlatZip(entries, `${targetDir}/${packageNameFromZip(fileName)}`);
+        if (plan.files.length === 0) {
+          res.status(400).json({ error: 'The .zip contained no installable files.' });
+          return;
+        }
+        await putContainerFiles(server.container_name, plan.files);
+        extracted = plan.files.map((f) => f.path);
+        skipped = plan.skipped;
+      } catch (err: any) {
+        res.status(400).json({ error: `Could not extract the .zip: ${err?.message || err}` });
+        return;
+      }
+      logServerActivity({
+        server_id: server.id, kind: 'config', actor: req.user!.username,
+        detail: `installed mod package ${fileName} (${extracted.length} file${extracted.length === 1 ? '' : 's'})`,
+      });
+      res.json({ ok: true, name: fileName, folder, extracted, skipped });
+      return;
+    }
+
     await putContainerFile(server.container_name, layout.base, folder, fileName, body);
     logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: `uploaded mod file ${fileName}` });
-    res.json({ ok: true, name: fileName, size: body.length, folder });
+    res.json({ ok: true, name: fileName, size: body.length, folder, extracted: [fileName] });
   })
 );
 

@@ -138,7 +138,9 @@ export const api = {
       path: string; folder: string; folders: Array<{ id: string; label: string; hint: string }>;
       running: boolean; mods: ModEntry[];
     }>('GET', `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}`),
-  uploadMod: async (id: number, folder: string, file: File): Promise<{ ok: boolean; name: string }> => {
+  uploadMod: async (
+    id: number, folder: string, file: File
+  ): Promise<{ ok: boolean; name: string; extracted?: string[]; skipped?: string[] }> => {
     const res = await fetch(
       `/api/servers/${id}/mods?folder=${encodeURIComponent(folder)}&filename=${encodeURIComponent(file.name)}`,
       {
@@ -152,7 +154,7 @@ export const api = {
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new ApiError(res.status, (data as any).error || `Upload failed (${res.status})`);
-    return data as { ok: boolean; name: string };
+    return data as { ok: boolean; name: string; extracted?: string[]; skipped?: string[] };
   },
   deleteMod: (id: number, folder: string, name: string) =>
     request<{ ok: boolean }>(

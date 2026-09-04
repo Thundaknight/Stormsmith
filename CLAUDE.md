@@ -86,6 +86,12 @@ carry it in parens (e.g. `... (1.0.30)`).
   `mysql2` reads of the acore_characters/acore_auth DBs to get real player/account lists with
   `mod-playerbots` bot accounts (prefix `rndbot`) filtered out — AzerothCore has no in-game command
   that does this. `players.ts` = the dispatch table mapping game -> how to list connected players.
+- **`games/thunderstore.ts`** — pure planner for mod `.zip` uploads: given the unzipped
+  entries (via `fflate`) and the target dirs, returns absolute container paths per the
+  Thunderstore layout (root `BepInEx/` merges into BepInEx, root `plugins/` into plugins,
+  loose files into `plugins/<pkg>/`; a single wrapping version folder is stripped;
+  `manifest.json`/icon/readme dropped; path traversal rejected). `docker.putContainerFiles`
+  writes the whole set in one `putArchive`. The mods upload route branches on `.zip`.
 - **`unifi/`** — keeps UniFi port-forward rules in step with container state. `client.ts` is a
   hand-rolled UniFi OS client on `node:https` (not `fetch`: consoles use self-signed certs and
   fetch can only relax TLS via an undici dispatcher, which isn't a dependency); it logs in at

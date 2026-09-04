@@ -48,17 +48,22 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
     if (!files || files.length === 0) return;
     setError('');
     setNotice('');
+    const summary: string[] = [];
     for (const file of Array.from(files)) {
       setUploading(file.name);
       try {
-        await api.uploadMod(serverId, folder, file);
+        const r = await api.uploadMod(serverId, folder, file);
+        if (file.name.toLowerCase().endsWith('.zip')) {
+          summary.push(`${file.name}: extracted ${r.extracted?.length ?? 0} file(s)` +
+            (r.skipped?.length ? `, skipped ${r.skipped.join(', ')}` : ''));
+        }
       } catch (err: any) {
         setError(`${file.name}: ${err.message}`);
         break;
       }
     }
     setUploading('');
-    setNotice('✅ Upload complete. Restart the server to load the mods.');
+    setNotice(`✅ Upload complete. Restart the server to load the mods.${summary.length ? ` (${summary.join('; ')})` : ''}`);
     if (fileInputRef.current) fileInputRef.current.value = '';
     load();
   };
@@ -102,6 +107,10 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
         <button className="btn" onClick={load}>Refresh</button>
       </div>
       {folderInfo?.hint && <p className="hint">{folderInfo.hint}</p>}
+      <p className="hint">
+        Upload a mod file directly, or a <span className="mono">.zip</span> — it's unpacked into place
+        (Thunderstore <span className="mono">manifest.json</span> / icon / readme files are dropped).
+      </p>
 
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-ok">{notice}</div>}
