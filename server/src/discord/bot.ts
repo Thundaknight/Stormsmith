@@ -7,7 +7,8 @@ import {
 import { resolveDisplayAddress } from '../address';
 import {
   deleteStatusMessage, getDiscordConfig, getServerById, getStatusMessage,
-  listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, logDiscordCommand, setStatusMessage,
+  listCustomFields, listDiscordRolePerms, listServers, listStatusMessages, logDiscordCommand, logServerActivity,
+  setStatusMessage,
 } from '../db';
 import { performAction } from '../docker';
 import { getAzerothBotStatus, hasDbConfig } from '../games/azerothcore';
@@ -498,8 +499,13 @@ class DiscordBot {
       await performAction(server.container_name, serverAction);
       await monitor.refresh();
       this.queueStatusUpdate();
+      logServerActivity({ server_id: server.id, kind: 'action', source: 'discord', actor: interaction.user.tag, detail: serverAction, result: 'ok' });
       await interaction.editReply(`✅ **${server.name}**: ${serverAction} issued.`);
     } catch (err: any) {
+      logServerActivity({
+        server_id: server.id, kind: 'action', source: 'discord', actor: interaction.user.tag, detail: serverAction,
+        result: 'error', target: err?.message || String(err),
+      });
       await interaction.editReply(`❌ Failed to ${serverAction} **${server.name}**: ${err?.message || err}`);
     }
   }
@@ -643,8 +649,13 @@ class DiscordBot {
         await performAction(server.container_name, action);
         await monitor.refresh();
         this.queueStatusUpdate();
+        logServerActivity({ server_id: server.id, kind: 'action', source: 'discord', actor: interaction.user.tag, detail: action, result: 'ok' });
         await interaction.editReply(`✅ **${server.name}**: \`${action}\` issued by ${interaction.user}.`);
       } catch (err: any) {
+        logServerActivity({
+          server_id: server.id, kind: 'action', source: 'discord', actor: interaction.user.tag, detail: action,
+          result: 'error', target: err?.message || String(err),
+        });
         await interaction.editReply(`❌ Failed to ${action} **${server.name}**: ${err?.message || err}`);
       }
       return;
@@ -664,8 +675,13 @@ class DiscordBot {
       try {
         const response = await sendRconCommand(server, command);
         const text = response.trim() || '(no response)';
+        logServerActivity({ server_id: server.id, kind: 'command', source: 'discord', actor: interaction.user.tag, detail: command, result: 'ok' });
         await interaction.editReply(`\`${command}\` → \`\`\`\n${text.slice(0, 1800)}\n\`\`\``);
       } catch (err: any) {
+        logServerActivity({
+          server_id: server.id, kind: 'command', source: 'discord', actor: interaction.user.tag, detail: command,
+          result: 'error', target: err?.message || String(err),
+        });
         await interaction.editReply(`❌ RCON failed: ${err?.message || err}`);
       }
       return;
@@ -680,8 +696,13 @@ class DiscordBot {
       await interaction.deferReply();
       try {
         await sendBroadcast(server, message);
+        logServerActivity({ server_id: server.id, kind: 'broadcast', source: 'discord', actor: interaction.user.tag, detail: message, result: 'ok' });
         await interaction.editReply(`📢 Sent to **${server.name}**: ${message}`);
       } catch (err: any) {
+        logServerActivity({
+          server_id: server.id, kind: 'broadcast', source: 'discord', actor: interaction.user.tag, detail: message,
+          result: 'error', target: err?.message || String(err),
+        });
         await interaction.editReply(`❌ Broadcast failed: ${err?.message || err}`);
       }
       return;

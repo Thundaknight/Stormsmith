@@ -1,4 +1,4 @@
-import { listServers } from './db';
+import { listServers, logServerActivity } from './db';
 import { performAction } from './docker';
 import { monitor } from './monitor';
 import { sendBroadcast } from './rcon';
@@ -131,8 +131,13 @@ async function tick(): Promise<void> {
           try {
             await performAction(server.container_name, 'restart');
             await monitor.refresh();
+            logServerActivity({ server_id: server.id, kind: 'action', source: 'scheduler', detail: 'scheduled restart', result: 'ok' });
           } catch (err: any) {
             console.error(`[scheduler] restart of '${server.name}' failed:`, err?.message || err);
+            logServerActivity({
+              server_id: server.id, kind: 'action', source: 'scheduler', detail: 'scheduled restart',
+              result: 'error', target: err?.message || String(err),
+            });
           }
         }
       }

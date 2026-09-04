@@ -4,7 +4,8 @@ import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
   createServer, createWowAccountLink, deleteServer, deleteWowAccountLink, getServerById, listCustomFields,
-  listServers, listUnifiRules, listWowAccountLinks, setCustomFields, setUnifiRules, updateServer,
+  listPlayersSeen, listServerActivity, listServers, listUnifiRules, listWowAccountLinks, logServerActivity,
+  setCustomFields, setUnifiRules, updateServer,
 } from '../db';
 import { resolveDisplayAddress } from '../address';
 import {
@@ -13,6 +14,7 @@ import {
 } from '../docker';
 import { discordBot } from '../discord/bot';
 import { fetchAzerothAccounts, fetchAzerothCharacters, hasDbConfig } from '../games/azerothcore';
+import { supportsPlayerList } from '../games/players';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import {
   findPluginsDirScript, findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
@@ -104,6 +106,16 @@ router.get('/', (req, res) => {
     dockerError: monitor.getLastError(),
     publicIp: getPublicIp(),
   });
+});
+
+/** Activity across every server (admin Logs page). Must precede `/:id`. */
+router.get('/activity', requireAdmin, (req, res) => {
+  const entries = listServerActivity({
+    kinds: parseKinds(req.query.kind),
+    before: req.query.before ? parseInt(String(req.query.before), 10) || undefined : undefined,
+    limit: req.query.limit ? parseInt(String(req.query.limit), 10) || undefined : undefined,
+  });
+  res.json({ entries: entries.map(activityView) });
 });
 
 /** Docker containers available for import (admin only). */
@@ -240,12 +252,17 @@ router.put('/:id', requireServerPermission('configure'), (req, res) => {
       )
     );
   }
+  logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: 'edited server settings' });
   monitor.refresh().catch(() => {});
   discordBot.refreshStatus();
   res.json({ server: publicServer(getServerById(server.id)!, true) });
 });
 
 router.delete('/:id', requireAdmin, (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (server) {
+    logServerActivity({ server_id: null, kind: 'config', actor: req.user!.username, detail: `removed server "${server.name}"` });
+  }
   deleteServer(parseInt(req.params.id, 10));
   monitor.refresh().catch(() => {});
   discordBot.refreshStatus();
@@ -272,6 +289,7 @@ router.put('/:id/fields', requireServerPermission('configure'), (req, res) => {
       content: String(f?.content || ''),
     }))
   );
+  logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: 'edited custom embed fields' });
   discordBot.refreshStatus();
   res.json({ fields: listCustomFields(server.id) });
 });
@@ -288,7 +306,16 @@ router.post('/:id/action', requireServerPermission('control'), asyncRoute(async 
     res.status(400).json({ error: `Action must be one of: ${ACTIONS.join(', ')}` });
     return;
   }
-  await performAction(server.container_name, action);
+  try {
+    await performAction(server.container_name, action);
+    logServerActivity({ server_id: server.id, kind: 'action', actor: req.user!.username, detail: action, result: 'ok' });
+  } catch (err: any) {
+    logServerActivity({
+      server_id: server.id, kind: 'action', actor: req.user!.username, detail: action,
+      result: 'error', target: err?.message || String(err),
+    });
+    throw err;
+  }
   await monitor.refresh();
   res.json({ ok: true, state: monitor.get(server.id)?.state });
 }));
@@ -305,6 +332,10 @@ router.post('/:id/delay-restart', requireServerPermission('control'), (req, res)
     res.status(400).json({ error: 'No scheduled restart to delay' });
     return;
   }
+  logServerActivity({
+    server_id: server.id, kind: 'config', actor: req.user!.username,
+    detail: `delayed the scheduled restart to ${new Date(targetAt).toLocaleString()}`,
+  });
   res.json({ ok: true, nextRestartAt: new Date(targetAt).toISOString() });
 });
 
@@ -330,8 +361,17 @@ router.post('/:id/rcon', requireServerPermission('rcon'), asyncRoute(async (req,
     res.status(400).json({ error: 'Command is required' });
     return;
   }
-  const response = await sendRconCommand(server, command);
-  res.json({ response });
+  try {
+    const response = await sendRconCommand(server, command);
+    logServerActivity({ server_id: server.id, kind: 'command', actor: req.user!.username, detail: command, result: 'ok' });
+    res.json({ response });
+  } catch (err: any) {
+    logServerActivity({
+      server_id: server.id, kind: 'command', actor: req.user!.username, detail: command,
+      result: 'error', target: err?.message || String(err),
+    });
+    throw err;
+  }
 }));
 
 /** Send an in-game broadcast message using the server's template. */
@@ -346,8 +386,17 @@ router.post('/:id/broadcast', requireServerPermission('rcon'), asyncRoute(async 
     res.status(400).json({ error: 'Message is required' });
     return;
   }
-  const response = await sendBroadcast(server, message);
-  res.json({ response });
+  try {
+    const response = await sendBroadcast(server, message);
+    logServerActivity({ server_id: server.id, kind: 'broadcast', actor: req.user!.username, detail: message, result: 'ok' });
+    res.json({ response });
+  } catch (err: any) {
+    logServerActivity({
+      server_id: server.id, kind: 'broadcast', actor: req.user!.username, detail: message,
+      result: 'error', target: err?.message || String(err),
+    });
+    throw err;
+  }
 }));
 
 // ---- AzerothCore player accounts ----
@@ -514,6 +563,10 @@ router.put('/:id/config', requireServerPermission('configure'), asyncRoute(async
   const next = applySettings(raw, updates);
   await writeContainerFile(server.container_name, configPath, next);
   const state = monitor.get(server.id)?.state;
+  logServerActivity({
+    server_id: server.id, kind: 'config', actor: req.user!.username,
+    detail: `edited the game config (${Object.keys(updates).length} setting${Object.keys(updates).length === 1 ? '' : 's'})`,
+  });
   res.json({ ok: true, path: configPath, restartRequired: state === 'running' });
 }));
 
@@ -640,6 +693,7 @@ router.post(
     const layout = await resolveModLayout(server);
     const folder = pickModFolder(layout, req);
     await putContainerFile(server.container_name, layout.base, folder, fileName, body);
+    logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: `uploaded mod file ${fileName}` });
     res.json({ ok: true, name: fileName, size: body.length, folder });
   })
 );
@@ -663,6 +717,7 @@ router.delete('/:id/mods/:filename', requireServerPermission('configure'), async
     res.status(500).json({ error: `Delete failed: ${result.stderr || 'unknown error'}` });
     return;
   }
+  logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: `deleted mod file ${fileName}` });
   res.json({ ok: true });
 }));
 
@@ -773,6 +828,10 @@ router.put('/:id/valheim-lists', requireServerPermission('configure'), asyncRout
     /* new file */
   }
   await writeContainerFile(server.container_name, filePath, serializeIdList({ header, ids }));
+  logServerActivity({
+    server_id: server.id, kind: 'config', actor: req.user!.username,
+    detail: `updated ${list}.txt (${ids.length} ID${ids.length === 1 ? '' : 's'})`,
+  });
   res.json({
     ok: true,
     list,
@@ -780,5 +839,87 @@ router.put('/:id/valheim-lists', requireServerPermission('configure'), asyncRout
     appliesIn: list === 'bannedlist' ? 'within ~30 seconds' : 'when the affected player next connects',
   });
 }));
+
+// ---- Activity log + player roster (admin only) ----
+
+const ACTIVITY_KINDS = ['command', 'broadcast', 'action', 'config', 'player'] as const;
+
+function parseKinds(raw: unknown): Array<(typeof ACTIVITY_KINDS)[number]> | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  const wanted = raw.split(',').map((s) => s.trim());
+  const valid = ACTIVITY_KINDS.filter((k) => wanted.includes(k));
+  return valid.length ? valid : undefined;
+}
+
+/** Activity for one server (its Logs tab). */
+router.get('/:id/activity', requireAdmin, (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const entries = listServerActivity({
+    serverId: server.id,
+    kinds: parseKinds(req.query.kind),
+    before: req.query.before ? parseInt(String(req.query.before), 10) || undefined : undefined,
+    limit: req.query.limit ? parseInt(String(req.query.limit), 10) || undefined : undefined,
+  });
+  res.json({ entries: entries.map(activityView) });
+});
+
+/** Player roster for one server: who has connected, and when they were last seen. */
+router.get('/:id/players', requireAdmin, asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const online = new Set(monitor.get(server.id)?.players ?? []);
+
+  if (server.game === 'azerothcore' && hasDbConfig(server)) {
+    // AzerothCore keeps a real last_login per account — better than our poll history.
+    const accounts = await fetchAzerothAccounts(server);
+    res.json({
+      supported: true,
+      source: 'database',
+      players: accounts.map((a) => ({
+        name: a.username, online: a.online, lastSeen: a.lastLogin, firstSeen: null,
+      })),
+    });
+    return;
+  }
+
+  const seen = listPlayersSeen(server.id);
+  res.json({
+    supported: supportsPlayerList(server) || seen.length > 0,
+    source: 'poll',
+    players: seen.map((p) => ({
+      name: p.player_name,
+      online: online.has(p.player_name),
+      lastSeen: isoFromSqlite(p.last_seen),
+      firstSeen: isoFromSqlite(p.first_seen),
+    })),
+  });
+}));
+
+function isoFromSqlite(s: string): string {
+  // SQLite datetime('now') is UTC but lacks the 'T'/'Z' — make it unambiguous ISO-8601.
+  return new Date(`${s.replace(' ', 'T')}Z`).toISOString();
+}
+
+function activityView(e: import('../types').ServerActivityEntry) {
+  return {
+    id: e.id,
+    serverId: e.server_id,
+    serverName: e.server_id ? getServerById(e.server_id)?.name ?? null : null,
+    kind: e.kind,
+    source: e.source,
+    actor: e.actor,
+    detail: e.detail,
+    target: e.target,
+    result: e.result,
+    createdAt: isoFromSqlite(e.created_at),
+  };
+}
 
 export default router;

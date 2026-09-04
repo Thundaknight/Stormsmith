@@ -9,6 +9,7 @@ import CopyButton from '../components/CopyButton';
 import CustomFields from '../components/CustomFields';
 import ModsPanel from '../components/ModsPanel';
 import PalworldSettings from '../components/PalworldSettings';
+import ServerLogs from '../components/ServerLogs';
 import StatusBadge from '../components/StatusBadge';
 import { formatBytes, formatRelative, mergeLive } from '../format';
 import type { GameCommand } from '../gameCommands';
@@ -22,7 +23,7 @@ interface ConsoleLine {
   text: string;
 }
 
-type Tab = 'controls' | 'accounts' | 'config' | 'mods' | 'settings';
+type Tab = 'controls' | 'accounts' | 'config' | 'mods' | 'settings' | 'logs';
 
 export default function ServerDetail() {
   const { id } = useParams();
@@ -265,6 +266,7 @@ export default function ServerDetail() {
     tabs.push({ id: 'mods', label: 'Mods' });
   }
   if (canConfigure) tabs.push({ id: 'settings', label: 'Settings' });
+  if (isAdmin) tabs.push({ id: 'logs', label: 'Logs' });
 
   const commands = GAME_COMMANDS[server.game];
   // Valheim has no console of its own — it only appears when a BepInEx RCON mod is detected.
@@ -480,6 +482,8 @@ export default function ServerDetail() {
         <ValheimAdminLists serverId={server.id} />
       )}
 
+      {tab === 'logs' && isAdmin && <ServerLogs serverId={server.id} />}
+
       {tab === 'config' && canConfigure && server.game === 'palworld' && (
         <PalworldSettings serverId={server.id} serverState={state} />
       )}
@@ -577,8 +581,16 @@ export default function ServerDetail() {
               )}
               <label className="span-2">
                 Game config file path
-                <input value={form.config_path || ''} onChange={(e) => setForm({ ...form, config_path: e.target.value })} placeholder="Auto-detected for Palworld" />
-                <span className="hint">Path inside the game container. Leave blank to auto-detect.</span>
+                <input
+                  value={form.config_path || ''}
+                  onChange={(e) => setForm({ ...form, config_path: e.target.value })}
+                  placeholder={form.game === 'palworld' ? 'Leave blank to auto-detect' : 'Path inside the game container'}
+                />
+                <span className="hint">
+                  {form.game === 'palworld'
+                    ? 'Path to PalWorldSettings.ini inside the container. Leave blank and Stormsmith will find it.'
+                    : 'Optional. The main config file inside the container — used by the Server Config editor where the game supports one.'}
+                </span>
               </label>
               {form.game === 'valheim' && (
                 <>

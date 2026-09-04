@@ -58,6 +58,15 @@ carry it in parens (e.g. `... (1.0.30)`).
   ones, plus player lists over RCON throttled to 30s per server. Emits `update` every poll and
   `change` only on a real state/player-count delta. This is the single source of live status —
   routes and the WebSocket read `monitor.get(id)` / `getAll()` rather than hitting Docker again.
+  Also diffs each player-list poll against the previous one (`prevPlayers`) to write
+  connect/disconnect rows and roster `last_seen` into the activity tables — a `null` poll
+  (RCON hiccup) is treated as "no info", never "everyone left".
+- **Activity log** (`server_activity_log` + `server_player_seen` in `db.ts`) — an audit trail
+  of every command / broadcast / container action / config change, from the web routes, the
+  Discord bot, the scheduler, and the monitor (player events). `logServerActivity()` is called
+  inline in each handler; `listServerActivity()` backs the per-server Logs tab and the global
+  `GET /api/servers/activity`. Distinct from `discord_command_log`, which stays as the
+  `/wowlevel`-specific audit on the global Logs page.
 - **`docker.ts`** — the only module that talks to dockerode. Local socket by default, or
   `DOCKER_HOST` tcp. Notable: reads/writes files *inside* containers via the archive (tar) API and
   `execInContainer` (POSIX `sh` only, no GNU tools assumed) — this is how the Palworld settings

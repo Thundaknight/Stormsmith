@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { config } from './config';
-import { listServers } from './db';
+import { listServers, logServerActivity, touchPlayersSeen } from './db';
 import { getStartedAt, getStats, listContainers } from './docker';
 import type { ContainerStats } from './docker';
 import { fetchPlayers, supportsPlayerList } from './games/players';
@@ -21,6 +21,8 @@ class StatusMonitor extends EventEmitter {
   private lastError = '';
   private polling = false;
   private playerCache = new Map<number, { at: number; players: string[] | null }>();
+  /** Last known real player list per server, for connect/disconnect diffing. */
+  private prevPlayers = new Map<number, string[]>();
 
   start(): void {
     if (this.timer) return;
@@ -98,10 +100,11 @@ class StatusMonitor extends EventEmitter {
     );
     const playerResults = await Promise.allSettled(playersDue.map((s) => fetchPlayers(s)));
     playerResults.forEach((result, i) => {
-      this.playerCache.set(playersDue[i].id, {
-        at: now,
-        players: result.status === 'fulfilled' ? result.value : null,
-      });
+      const server = playersDue[i];
+      const players = result.status === 'fulfilled' ? result.value : null;
+      this.playerCache.set(server.id, { at: now, players });
+      // A failed poll is "no information" — never let it read as everyone leaving.
+      if (players) this.diffPlayers(server.id, players);
     });
 
     let changed = false;
@@ -110,7 +113,11 @@ class StatusMonitor extends EventEmitter {
       seen.add(s.id);
       const c = byName.get(s.container_name);
       const isRunning = c?.state === 'running';
-      if (!isRunning) this.playerCache.delete(s.id);
+      if (!isRunning) {
+        this.playerCache.delete(s.id);
+        // A stopped container's players are gone; the stop itself is logged as an action.
+        this.prevPlayers.delete(s.id);
+      }
       const stats = statsMap.get(s.id);
       const players = isRunning ? this.playerCache.get(s.id)?.players ?? null : null;
       const next: ServerStatus = {
@@ -142,8 +149,39 @@ class StatusMonitor extends EventEmitter {
       }
     }
 
+    for (const id of [...this.prevPlayers.keys()]) {
+      if (!seen.has(id)) this.prevPlayers.delete(id);
+    }
+
     this.emit('update', this.getAll());
     if (changed) this.emit('change', this.getAll());
+  }
+
+  /**
+   * Records connect/disconnect events and roster last-seen from one player-list poll.
+   * `current` is always a real array here — a failed poll is skipped by the caller.
+   */
+  private diffPlayers(serverId: number, current: string[]): void {
+    const prev = this.prevPlayers.get(serverId);
+    this.prevPlayers.set(serverId, current);
+    try {
+      touchPlayersSeen(serverId, current);
+      if (!prev) return; // first poll for this server this session — seed without events
+      const prevSet = new Set(prev);
+      const curSet = new Set(current);
+      for (const name of current) {
+        if (!prevSet.has(name)) {
+          logServerActivity({ server_id: serverId, kind: 'player', source: 'monitor', detail: 'connected', target: name });
+        }
+      }
+      for (const name of prev) {
+        if (!curSet.has(name)) {
+          logServerActivity({ server_id: serverId, kind: 'player', source: 'monitor', detail: 'disconnected', target: name });
+        }
+      }
+    } catch (err: any) {
+      console.error('[monitor] player diff failed:', err?.message || err);
+    }
   }
 }
 

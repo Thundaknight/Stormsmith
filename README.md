@@ -14,6 +14,7 @@ Stormsmith is a self-hosted web dashboard for running game servers as Docker con
 - Scheduled restarts with in-game warnings, custom embed fields, and configurable public address display
 - Automatic UniFi port forwarding: a server's port-forward rules close while it's stopped or paused, and reopen when it starts — restarts never close them
 - A full Palworld settings editor and dedicated AzerothCore player-account and bot-management tooling
+- Per-server activity logs — an admin-only Logs tab on every server showing who ran what command, every broadcast/action/config change, and a roster of everyone who has connected with their last-seen time
 - An admin-only Logs page auditing sensitive Discord bot commands, and a version footer to confirm what's actually deployed
 
 See below for the full detail on each feature.
@@ -105,6 +106,17 @@ The initial admin (from first-run setup) can also link a Discord account to thei
 - The **RCON host** is usually your Unraid IP, with the RCON port mapped by the game container. Remember to enable RCON in the game's own config (e.g. `RCONEnabled=True` for Palworld).
 - The **broadcast template** is the RCON command used for in-game messages. `{message}` is replaced with the text; `{message_underscored}` replaces spaces with underscores (needed for Palworld's `Broadcast`).
 - Satisfactory does not support RCON — you can still import and manage its container; just leave RCON blank. Valheim needs a mod (see below).
+
+## Activity & player logs
+
+Every server page has a **Logs** tab (admins only) with two parts:
+
+- **Players** — everyone Stormsmith has seen connected to that server, newest-seen first, with first-seen and last-seen times and a dot for who's on right now. Connections are detected from the game's player list, polled about every 30 seconds, so a very short session can slip through. AzerothCore reports the real per-account `last_login` from its database instead. Satisfactory and unmodded Valheim expose no player list, so their Players panel just says so.
+- **Activity** — a filterable feed of every RCON/game command (with the exact command text and who ran it), broadcast, container start/stop/restart/pause, and config/mod/settings change, whether it came from the web UI or the Discord bot, plus the player connect/disconnect events. Scheduled restarts show up here too, tagged `via scheduler`.
+
+The admin **Logs** page (sidebar) has the same activity feed across all servers at once, above the existing Discord sensitive-command audit.
+
+The activity log keeps the most recent 5,000 entries; the player roster is one row per player and is kept indefinitely (until the server is removed from Stormsmith).
 
 ## Valheim notes
 

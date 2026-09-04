@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3';
 import { config } from './config';
 import type {
-  CustomField, DiscordCommandLogEntry, DiscordConfig, DiscordRolePerm, GameServer, InviteLink, ServerPermission,
-  UnifiConfig, UnifiRuleMapping, User, WowAccountLink,
+  ActivityKind, ActivitySource, CustomField, DiscordCommandLogEntry, DiscordConfig, DiscordRolePerm, GameServer,
+  InviteLink, PlayerSeen, ServerActivityEntry, ServerPermission, UnifiConfig, UnifiRuleMapping, User, WowAccountLink,
 } from './types';
 
 export const db = new Database(config.dbFile);
@@ -147,6 +147,27 @@ export function initDb(): void {
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS server_activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server_id INTEGER REFERENCES servers(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'web',
+      actor TEXT NOT NULL DEFAULT '',
+      detail TEXT NOT NULL DEFAULT '',
+      target TEXT NOT NULL DEFAULT '',
+      result TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_server ON server_activity_log(server_id, id DESC);
+
+    CREATE TABLE IF NOT EXISTS server_player_seen (
+      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      player_name TEXT NOT NULL,
+      first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (server_id, player_name)
     );
 
     CREATE TABLE IF NOT EXISTS unifi_config (
@@ -537,6 +558,83 @@ export function listDiscordCommandLog(limit = 200): DiscordCommandLogEntry[] {
   return db
     .prepare('SELECT * FROM discord_command_log ORDER BY id DESC LIMIT ?')
     .all(limit) as DiscordCommandLogEntry[];
+}
+
+// ---- Server activity log (commands, broadcasts, container actions, config edits, player events) ----
+
+const ACTIVITY_LOG_MAX_ROWS = 5000;
+
+export function logServerActivity(entry: {
+  server_id: number | null;
+  kind: ActivityKind;
+  source?: ActivitySource;
+  actor?: string;
+  detail?: string;
+  target?: string;
+  result?: string;
+}): void {
+  db.prepare(
+    `INSERT INTO server_activity_log (server_id, kind, source, actor, detail, target, result)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    entry.server_id, entry.kind, entry.source || 'web', entry.actor || '',
+    entry.detail || '', entry.target || '', entry.result || ''
+  );
+  db.prepare(
+    `DELETE FROM server_activity_log WHERE id NOT IN (
+       SELECT id FROM server_activity_log ORDER BY id DESC LIMIT ?
+     )`
+  ).run(ACTIVITY_LOG_MAX_ROWS);
+}
+
+export function listServerActivity(opts: {
+  serverId?: number;
+  kinds?: ActivityKind[];
+  before?: number;
+  limit?: number;
+} = {}): ServerActivityEntry[] {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.serverId !== undefined) {
+    where.push('server_id = ?');
+    params.push(opts.serverId);
+  }
+  if (opts.kinds && opts.kinds.length) {
+    where.push(`kind IN (${opts.kinds.map(() => '?').join(', ')})`);
+    params.push(...opts.kinds);
+  }
+  if (opts.before) {
+    where.push('id < ?');
+    params.push(opts.before);
+  }
+  const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000);
+  params.push(limit);
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return db
+    .prepare(`SELECT * FROM server_activity_log ${clause} ORDER BY id DESC LIMIT ?`)
+    .all(...params) as ServerActivityEntry[];
+}
+
+// ---- Player roster (who has connected, and when they were last seen) ----
+
+/** Records that these names are connected right now: inserts new ones, bumps last_seen for all. */
+export function touchPlayersSeen(serverId: number, names: string[]): void {
+  if (names.length === 0) return;
+  const stmt = db.prepare(
+    `INSERT INTO server_player_seen (server_id, player_name, first_seen, last_seen)
+     VALUES (?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(server_id, player_name) DO UPDATE SET last_seen = datetime('now')`
+  );
+  const tx = db.transaction((list: string[]) => {
+    for (const name of list) stmt.run(serverId, name);
+  });
+  tx(names);
+}
+
+export function listPlayersSeen(serverId: number): PlayerSeen[] {
+  return db
+    .prepare('SELECT * FROM server_player_seen WHERE server_id = ? ORDER BY last_seen DESC')
+    .all(serverId) as PlayerSeen[];
 }
 
 // ---- WoW (AzerothCore) account links — creating a new account or resetting a password,

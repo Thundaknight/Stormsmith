@@ -1,7 +1,7 @@
 import type {
   Account, ContainerSummary, CustomField, DiscordConfigView, DiscordLogEntry, DiscordRolePerm, GameServer,
-  InviteLink, ModEntry, Permission, ServerAction, UnifiConfigView, UnifiRule, User, WowAccount, WowAccountLink,
-  WowCharacter,
+  InviteLink, ModEntry, Permission, RosterPlayer, ServerAction, ServerActivityEntry, UnifiConfigView, UnifiRule,
+  User, WowAccount, WowAccountLink, WowCharacter,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -81,6 +81,26 @@ export const api = {
   getServerConfig: (id: number) =>
     request<{ path: string; settings: Record<string, string>; empty: boolean }>(
       'GET', `/api/servers/${id}/config`),
+
+  // activity log + player roster (admin only)
+  serverActivity: (id: number, opts: { kind?: string; before?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.kind) q.set('kind', opts.kind);
+    if (opts.before) q.set('before', String(opts.before));
+    if (opts.limit) q.set('limit', String(opts.limit));
+    const qs = q.toString();
+    return request<{ entries: ServerActivityEntry[] }>('GET', `/api/servers/${id}/activity${qs ? `?${qs}` : ''}`);
+  },
+  allActivity: (opts: { kind?: string; before?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.kind) q.set('kind', opts.kind);
+    if (opts.before) q.set('before', String(opts.before));
+    if (opts.limit) q.set('limit', String(opts.limit));
+    const qs = q.toString();
+    return request<{ entries: ServerActivityEntry[] }>('GET', `/api/servers/activity${qs ? `?${qs}` : ''}`);
+  },
+  serverPlayers: (id: number) =>
+    request<{ supported: boolean; source: string; players: RosterPlayer[] }>('GET', `/api/servers/${id}/players`),
 
   // Valheim (admin/ban/permitted lists + RCON-mod detection)
   getValheimStatus: (id: number) =>

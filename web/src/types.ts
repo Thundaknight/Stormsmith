@@ -88,6 +88,26 @@ export interface UnifiConfigView {
   last_sync: string | null;
 }
 
+export interface ServerActivityEntry {
+  id: number;
+  serverId: number | null;
+  serverName: string | null;
+  kind: 'command' | 'broadcast' | 'action' | 'config' | 'player';
+  source: 'web' | 'discord' | 'monitor' | 'scheduler';
+  actor: string;
+  detail: string;
+  target: string;
+  result: string;
+  createdAt: string;
+}
+
+export interface RosterPlayer {
+  name: string;
+  online: boolean;
+  lastSeen: string | null;
+  firstSeen: string | null;
+}
+
 export interface UnifiRule {
   id: string;
   name: string;

@@ -150,6 +150,28 @@ export interface UnifiRuleMapping {
   rule_name: string;
 }
 
+export type ActivityKind = 'command' | 'broadcast' | 'action' | 'config' | 'player';
+export type ActivitySource = 'web' | 'discord' | 'monitor' | 'scheduler';
+
+export interface ServerActivityEntry {
+  id: number;
+  server_id: number | null;
+  kind: ActivityKind;
+  source: ActivitySource;
+  actor: string;
+  detail: string;
+  target: string;
+  result: string;
+  created_at: string;
+}
+
+export interface PlayerSeen {
+  server_id: number;
+  player_name: string;
+  first_seen: string;
+  last_seen: string;
+}
+
 export interface DiscordCommandLogEntry {
   id: number;
   command: string;
