@@ -37,7 +37,8 @@ export default function Dashboard() {
   const merged = servers.map((s) => mergeLive(s, statuses.get(s.id)));
 
   return (
-    <div>
+    <div className="dashboard">
+      <div className="dashboard-bg" aria-hidden="true" />
       <div className="page-head">
         <div>
           <h1>Dashboard</h1>

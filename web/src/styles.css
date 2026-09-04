@@ -319,6 +319,27 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent);
   background-position: -100px -80px, 400px 200px;
 }
 .login-screen .login-card { position: relative; z-index: 1; }
+
+/* Same storm treatment behind the dashboard content area */
+.dashboard { position: relative; }
+.dashboard > :not(.dashboard-bg) { position: relative; z-index: 1; }
+.dashboard-bg {
+  position: fixed;
+  inset: 0 0 0 230px;
+  z-index: 0;
+  opacity: 0.35;
+  background-color: transparent;
+  background-image:
+    radial-gradient(600px 400px at 50% 30%, #3aa8ff1c, transparent 70%),
+    radial-gradient(500px 320px at 70% 12%, #ffd23f14, transparent 65%),
+    linear-gradient(120deg, transparent 48%, #3ddcff14 49%, #3ddcff0a 50%, transparent 51%),
+    linear-gradient(120deg, transparent 60%, #3ddcff10 61%, transparent 62%);
+  background-size: 100% 100%, 100% 100%, 900px 900px, 700px 700px;
+  background-position: center, center, -100px -80px, 400px 200px;
+}
+@media (max-width: 720px) {
+  .dashboard-bg { inset: 0; }
+}
 .login-screen .version-footer {
   position: absolute;
   bottom: 16px;
