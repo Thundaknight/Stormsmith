@@ -213,6 +213,24 @@ export interface ModEntry {
   name: string;
   size: number;
   isDir: boolean;
+  /** Best-effort matching BepInEx .cfg filename, if one was detected (Valheim only). */
+  configFile?: string | null;
+}
+
+export interface BepInExSetting {
+  id: string;
+  section: string;
+  key: string;
+  value: string;
+  description?: string;
+  type?: string;
+  acceptableValues?: string[];
+  range?: { min: number; max: number };
+}
+
+export interface BepInExSection {
+  name: string;
+  settings: BepInExSetting[];
 }
 
 export interface Permission {

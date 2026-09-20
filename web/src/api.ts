@@ -1,7 +1,7 @@
 import type {
-  Account, ContainerSummary, CustomField, DiscordConfigView, DiscordLogEntry, DiscordRolePerm, GameServer,
-  InviteLink, ModEntry, Permission, RosterPlayer, ServerAction, ServerActivityEntry, UnifiConfigView, UnifiRule,
-  User, WowAccount, WowAccountLink, WowCharacter,
+  Account, BepInExSection, ContainerSummary, CustomField, DiscordConfigView, DiscordLogEntry, DiscordRolePerm,
+  GameServer, InviteLink, ModEntry, Permission, RosterPlayer, ServerAction, ServerActivityEntry, UnifiConfigView,
+  UnifiRule, User, WowAccount, WowAccountLink, WowCharacter,
 } from './types';
 
 const TOKEN_KEY = 'sm_token';
@@ -159,6 +159,12 @@ export const api = {
   deleteMod: (id: number, folder: string, name: string) =>
     request<{ ok: boolean }>(
       'DELETE', `/api/servers/${id}/mods/${encodeURIComponent(name)}?folder=${encodeURIComponent(folder)}`),
+  getModConfig: (id: number, file: string) =>
+    request<{ path: string; sections: BepInExSection[] }>(
+      'GET', `/api/servers/${id}/mods/config?file=${encodeURIComponent(file)}`),
+  saveModConfig: (id: number, file: string, updates: Record<string, string>) =>
+    request<{ ok: boolean; path: string; restartRequired: boolean }>(
+      'PUT', `/api/servers/${id}/mods/config?file=${encodeURIComponent(file)}`, { updates }),
 
   // users
   listUsers: () => request<{ users: User[] }>('GET', '/api/users'),

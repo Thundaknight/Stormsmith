@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { formatBytes } from '../format';
 import type { ModEntry } from '../types';
+import BepInExConfigEditor from './BepInExConfigEditor';
 
 interface Props {
   serverId: number;
@@ -25,6 +26,7 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [uploading, setUploading] = useState('');
+  const [configuring, setConfiguring] = useState<ModEntry | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const running = serverState === 'running';
@@ -136,6 +138,11 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
                 <td className="mono">{m.isDir ? '📁 ' : ''}{m.name}</td>
                 <td className="muted">{m.isDir ? '—' : formatBytes(m.size)}</td>
                 <td className="table-actions">
+                  {m.configFile && (
+                    <button className="btn btn-small" onClick={() => setConfiguring(m)} disabled={!running}>
+                      Configure
+                    </button>
+                  )}
                   <button className="btn btn-small btn-danger-outline" onClick={() => remove(m)} disabled={!running}>
                     Delete
                   </button>
@@ -147,6 +154,16 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
       )}
 
       {footer && <p className="hint">{footer}</p>}
+
+      {configuring?.configFile && (
+        <BepInExConfigEditor
+          serverId={serverId}
+          serverState={serverState}
+          modName={configuring.name}
+          fileName={configuring.configFile}
+          onClose={() => setConfiguring(null)}
+        />
+      )}
     </div>
   );
 }

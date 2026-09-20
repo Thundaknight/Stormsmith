@@ -17,6 +17,7 @@ import { discordBot } from '../discord/bot';
 import { fetchAzerothAccounts, fetchAzerothCharacters, hasDbConfig } from '../games/azerothcore';
 import { supportsPlayerList } from '../games/players';
 import { applySettings, parseOptionSettings } from '../games/palworld';
+import { applyBepInExConfig, matchConfigFile, parseBepInExConfig } from '../games/bepinexConfig';
 import {
   findPluginsDirScript, findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
 } from '../games/valheim';
@@ -672,7 +673,18 @@ router.get('/:id/mods', requireServerPermission('configure'), asyncRoute(async (
     return;
   }
   const mods = await listContainerDir(server.container_name, dir);
-  res.json({ path: dir, folder, folders: layout.folders, running: true, mods });
+  let withConfig = mods;
+  if (server.game === 'valheim') {
+    let cfgNames: string[] = [];
+    try {
+      const cfgEntries = await listContainerDir(server.container_name, `${layout.base}/config`);
+      cfgNames = cfgEntries.filter((e) => !e.isDir && e.name.toLowerCase().endsWith('.cfg')).map((e) => e.name);
+    } catch {
+      /* no BepInEx/config folder yet — no plugin has generated one */
+    }
+    withConfig = mods.map((m) => ({ ...m, configFile: matchConfigFile(m.name, cfgNames) }));
+  }
+  res.json({ path: dir, folder, folders: layout.folders, running: true, mods: withConfig });
 }));
 
 /** Upload a mod file (works even while the container is stopped). */
@@ -754,6 +766,51 @@ router.delete('/:id/mods/:filename', requireServerPermission('configure'), async
   }
   logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: `deleted mod file ${fileName}` });
   res.json({ ok: true });
+}));
+
+/** Read a BepInEx plugin's .cfg file, parsed into sections (Valheim only). */
+router.get('/:id/mods/config', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  if (server.game !== 'valheim') {
+    res.status(400).json({ error: 'Config editing is only available for Valheim mods' });
+    return;
+  }
+  const fileName = safeModFileName(String(req.query.file || ''));
+  const layout = await resolveModLayout(server);
+  const configPath = `${layout.base}/config/${fileName}`;
+  const raw = await readContainerFile(server.container_name, configPath);
+  res.json({ path: configPath, sections: parseBepInExConfig(raw) });
+}));
+
+/** Write updated values back into a BepInEx plugin's .cfg file (Valheim only). */
+router.put('/:id/mods/config', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  if (server.game !== 'valheim') {
+    res.status(400).json({ error: 'Config editing is only available for Valheim mods' });
+    return;
+  }
+  const updates = req.body?.updates;
+  if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+    res.status(400).json({ error: 'updates must be an object' });
+    return;
+  }
+  const fileName = safeModFileName(String(req.query.file || ''));
+  const layout = await resolveModLayout(server);
+  const configPath = `${layout.base}/config/${fileName}`;
+  const raw = await readContainerFile(server.container_name, configPath);
+  const next = applyBepInExConfig(raw, updates as Record<string, string>);
+  await writeContainerFile(server.container_name, configPath, next);
+  const state = monitor.get(server.id)?.state;
+  logServerActivity({ server_id: server.id, kind: 'config', actor: req.user!.username, detail: `edited mod config ${fileName}` });
+  res.json({ ok: true, path: configPath, restartRequired: state === 'running' });
 }));
 
 // ---- Valheim: admin / banned / permitted lists + RCON-mod detection ----
