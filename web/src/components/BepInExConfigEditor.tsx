@@ -75,6 +75,7 @@ export default function BepInExConfigEditor({ serverId, serverState, modName, fi
         const flat = Object.fromEntries(r.sections.flatMap((s) => s.settings.map((set) => [set.id, set.value])));
         setOriginal(flat);
         setValues(flat);
+        setCollapsed(new Set(r.sections.map((s) => s.name)));
       })
       .catch((err) => setError(err.message));
   };
@@ -118,6 +119,15 @@ export default function BepInExConfigEditor({ serverId, serverState, modName, fi
         {notice && <div className="alert alert-ok">{notice}</div>}
 
         {sections === null && !error && <div className="muted">Reading {fileName} from the container…</div>}
+
+        {sections !== null && sections.length > 0 && (
+          <div className="btn-row" style={{ marginBottom: 8 }}>
+            <button className="btn btn-small" onClick={() => setCollapsed(new Set())}>Expand all</button>
+            <button className="btn btn-small" onClick={() => setCollapsed(new Set(sections.map((s) => s.name)))}>
+              Collapse all
+            </button>
+          </div>
+        )}
 
         {sections !== null && sections.map((section) => {
           const isOpen = !collapsed.has(section.name);
