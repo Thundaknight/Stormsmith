@@ -55,6 +55,15 @@ export default function BepInExConfigEditor({ serverId, serverState, modName, fi
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const toggleSection = (name: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
 
   const load = () => {
     setError('');
@@ -100,7 +109,7 @@ export default function BepInExConfigEditor({ serverId, serverState, modName, fi
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="card modal" onClick={(e) => e.stopPropagation()}>
+      <div className="card modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="card-head-row">
           <h2>{modName} config</h2>
           <span className="muted mono">{path}</span>
@@ -110,27 +119,37 @@ export default function BepInExConfigEditor({ serverId, serverState, modName, fi
 
         {sections === null && !error && <div className="muted">Reading {fileName} from the container…</div>}
 
-        {sections !== null && sections.map((section) => (
-          <div key={section.name} className="setting-group">
-            <div className="setting-group-head">
-              <span>{section.name}</span>
+        {sections !== null && sections.map((section) => {
+          const isOpen = !collapsed.has(section.name);
+          return (
+            <div key={section.name} className="setting-group">
+              <button
+                type="button"
+                className="setting-group-head"
+                onClick={() => toggleSection(section.name)}
+              >
+                <span>{section.name}</span>
+                <span className="muted">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              {isOpen && (
+                <div className="setting-group-body">
+                  {section.settings.map((setting) => (
+                    <label key={setting.id} className="setting-row">
+                      <span className="setting-label">
+                        {setting.key}
+                        {setting.description && <span className="hint">{setting.description}</span>}
+                      </span>
+                      <SettingControl
+                        setting={{ ...setting, value: values[setting.id] ?? setting.value }}
+                        onChange={(v) => setValues((prev) => ({ ...prev, [setting.id]: v }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="setting-group-body">
-              {section.settings.map((setting) => (
-                <label key={setting.id} className="setting-row">
-                  <span className="setting-label">
-                    {setting.key}
-                    {setting.description && <span className="hint">{setting.description}</span>}
-                  </span>
-                  <SettingControl
-                    setting={{ ...setting, value: values[setting.id] ?? setting.value }}
-                    onChange={(v) => setValues((prev) => ({ ...prev, [setting.id]: v }))}
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div className="setting-footer">
           <div className="muted">

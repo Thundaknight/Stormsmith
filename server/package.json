@@ -1,6 +1,6 @@
 {
   "name": "@stormsmith/server",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "private": true,
   "main": "dist/index.js",
   "scripts": {
