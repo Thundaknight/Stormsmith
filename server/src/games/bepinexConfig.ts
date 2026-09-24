@@ -121,20 +121,26 @@ function tokenize(name: string): string[] {
 
 /**
  * Best-effort match between a mod's file/folder name and one of a plugin's config
- * files. BepInEx names `.cfg` files after the plugin GUID, not the Thunderstore
- * package name, so there's no exact key — instead we compare significant word
- * tokens and require the config file's tokens to be (almost) fully covered by the
- * mod's name. Returns the matching filename, or null if nothing clears the bar.
+ * files. BepInEx names `.cfg` files after the plugin GUID (often `Author.PluginName.cfg`),
+ * not the Thunderstore package name, so there's no exact key — instead we compare
+ * significant word tokens. We score by containment against whichever side has *fewer*
+ * tokens, not just the config's, since a mod uploaded as a loose `.dll` (e.g.
+ * `NoSmokeStayLit.dll`) carries fewer tokens than its GUID-based config filename (e.g.
+ * `TastyChickenLegs.NoSmokeStayLit.cfg`) — scoring only against the config's token count
+ * would unfairly penalize that direction. A single-token side is only trusted if both
+ * sides are that same single token, to avoid generic-word false positives.
  */
 export function matchConfigFile(modName: string, cfgFileNames: string[]): string | null {
   const modTokens = new Set(tokenize(modName));
   if (modTokens.size === 0) return null;
   let best: { name: string; score: number } | null = null;
   for (const cfgName of cfgFileNames) {
-    const cfgTokens = tokenize(cfgName);
-    if (cfgTokens.length === 0) continue;
-    const overlap = cfgTokens.filter((t) => modTokens.has(t)).length;
-    const score = overlap / cfgTokens.length;
+    const cfgTokens = new Set(tokenize(cfgName));
+    if (cfgTokens.size === 0) continue;
+    const overlap = [...cfgTokens].filter((t) => modTokens.has(t)).length;
+    if (overlap === 0) continue;
+    const smaller = Math.min(modTokens.size, cfgTokens.size);
+    const score = smaller <= 1 ? (modTokens.size === 1 && cfgTokens.size === 1 ? 1 : 0) : overlap / smaller;
     if (score >= 0.6 && (!best || score > best.score)) best = { name: cfgName, score };
   }
   return best?.name ?? null;
