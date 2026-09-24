@@ -119,29 +119,74 @@ function tokenize(name: string): string[] {
     .filter((s) => s.length > 2 && !STOPWORDS.has(s));
 }
 
+function configMatchScore(modTokens: Set<string>, cfgTokens: Set<string>): { score: number; overlap: number } {
+  const overlap = [...cfgTokens].filter((t) => modTokens.has(t)).length;
+  if (overlap === 0) return { score: 0, overlap: 0 };
+  const smaller = Math.min(modTokens.size, cfgTokens.size);
+  const score = smaller <= 1 ? (modTokens.size === 1 && cfgTokens.size === 1 ? 1 : 0) : overlap / smaller;
+  return { score, overlap };
+}
+
 /**
- * Best-effort match between a mod's file/folder name and one of a plugin's config
+ * Best-effort match between every mod's file/folder name and a plugin's config
  * files. BepInEx names `.cfg` files after the plugin GUID (often `Author.PluginName.cfg`),
- * not the Thunderstore package name, so there's no exact key — instead we compare
- * significant word tokens. We score by containment against whichever side has *fewer*
- * tokens, not just the config's, since a mod uploaded as a loose `.dll` (e.g.
- * `NoSmokeStayLit.dll`) carries fewer tokens than its GUID-based config filename (e.g.
- * `TastyChickenLegs.NoSmokeStayLit.cfg`) — scoring only against the config's token count
- * would unfairly penalize that direction. A single-token side is only trusted if both
- * sides are that same single token, to avoid generic-word false positives.
+ * not the Thunderstore package name and not necessarily containing the author at all
+ * on the mod's side, so there's no exact key — instead we compare significant word
+ * tokens across every mod/config pair at once (not mod-by-mod), in two passes:
+ *
+ *  1. Confident matches: score by containment against whichever side has *fewer*
+ *     tokens (a mod uploaded as a loose `.dll`, e.g. `NoSmokeStayLit.dll`, carries
+ *     fewer tokens than its GUID-based config, e.g. `TastyChickenLegs.NoSmokeStayLit.cfg`
+ *     — scoring only against the config's token count would unfairly penalize that
+ *     direction). Assigned best-score-first, each mod and config claimed at most once.
+ *  2. Elimination: for whatever's left unclaimed, a mod and a config that share even
+ *     one real word are paired *only* if each is the other's sole remaining candidate
+ *     — safe precisely because there's no ambiguity left to get wrong. This catches
+ *     cases like `ValheimRcon.dll` vs `org.tristan.rcon.cfg`, where the author name
+ *     never appears in the mod's own filename and "rcon" is the only shared token.
  */
-export function matchConfigFile(modName: string, cfgFileNames: string[]): string | null {
-  const modTokens = new Set(tokenize(modName));
-  if (modTokens.size === 0) return null;
-  let best: { name: string; score: number } | null = null;
-  for (const cfgName of cfgFileNames) {
-    const cfgTokens = new Set(tokenize(cfgName));
-    if (cfgTokens.size === 0) continue;
-    const overlap = [...cfgTokens].filter((t) => modTokens.has(t)).length;
-    if (overlap === 0) continue;
-    const smaller = Math.min(modTokens.size, cfgTokens.size);
-    const score = smaller <= 1 ? (modTokens.size === 1 && cfgTokens.size === 1 ? 1 : 0) : overlap / smaller;
-    if (score >= 0.6 && (!best || score > best.score)) best = { name: cfgName, score };
+export function matchConfigFiles(modNames: string[], cfgFileNames: string[]): Record<string, string | null> {
+  const modTokenSets = new Map(modNames.map((m) => [m, new Set(tokenize(m))]));
+  const cfgTokenSets = new Map(cfgFileNames.map((c) => [c, new Set(tokenize(c))]));
+
+  const pairs: Array<{ modName: string; cfgName: string; score: number; overlap: number }> = [];
+  for (const modName of modNames) {
+    const modTokens = modTokenSets.get(modName)!;
+    if (modTokens.size === 0) continue;
+    for (const cfgName of cfgFileNames) {
+      const cfgTokens = cfgTokenSets.get(cfgName)!;
+      if (cfgTokens.size === 0) continue;
+      const { score, overlap } = configMatchScore(modTokens, cfgTokens);
+      if (overlap > 0) pairs.push({ modName, cfgName, score, overlap });
+    }
   }
-  return best?.name ?? null;
+
+  const result: Record<string, string | null> = Object.fromEntries(modNames.map((m) => [m, null]));
+  const claimedMod = new Set<string>();
+  const claimedCfg = new Set<string>();
+
+  const confident = pairs.filter((p) => p.score >= 0.6).sort((a, b) => b.score - a.score || b.overlap - a.overlap);
+  for (const p of confident) {
+    if (claimedMod.has(p.modName) || claimedCfg.has(p.cfgName)) continue;
+    result[p.modName] = p.cfgName;
+    claimedMod.add(p.modName);
+    claimedCfg.add(p.cfgName);
+  }
+
+  const leftover = pairs.filter((p) => !claimedMod.has(p.modName) && !claimedCfg.has(p.cfgName));
+  const modCandidates = new Map<string, number>();
+  const cfgCandidates = new Map<string, number>();
+  for (const p of leftover) {
+    modCandidates.set(p.modName, (modCandidates.get(p.modName) || 0) + 1);
+    cfgCandidates.set(p.cfgName, (cfgCandidates.get(p.cfgName) || 0) + 1);
+  }
+  for (const p of leftover) {
+    if (modCandidates.get(p.modName) === 1 && cfgCandidates.get(p.cfgName) === 1) {
+      result[p.modName] = p.cfgName;
+      claimedMod.add(p.modName);
+      claimedCfg.add(p.cfgName);
+    }
+  }
+
+  return result;
 }

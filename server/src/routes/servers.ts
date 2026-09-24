@@ -17,7 +17,7 @@ import { discordBot } from '../discord/bot';
 import { fetchAzerothAccounts, fetchAzerothCharacters, hasDbConfig } from '../games/azerothcore';
 import { supportsPlayerList } from '../games/players';
 import { applySettings, parseOptionSettings } from '../games/palworld';
-import { applyBepInExConfig, matchConfigFile, parseBepInExConfig } from '../games/bepinexConfig';
+import { applyBepInExConfig, matchConfigFiles, parseBepInExConfig } from '../games/bepinexConfig';
 import {
   findPluginsDirScript, findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
 } from '../games/valheim';
@@ -682,7 +682,8 @@ router.get('/:id/mods', requireServerPermission('configure'), asyncRoute(async (
     } catch {
       /* no BepInEx/config folder yet — no plugin has generated one */
     }
-    withConfig = mods.map((m) => ({ ...m, configFile: matchConfigFile(m.name, cfgNames) }));
+    const matches = matchConfigFiles(mods.map((m) => m.name), cfgNames);
+    withConfig = mods.map((m) => ({ ...m, configFile: matches[m.name] ?? null }));
   }
   res.json({ path: dir, folder, folders: layout.folders, running: true, mods: withConfig });
 }));
