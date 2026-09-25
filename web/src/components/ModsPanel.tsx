@@ -9,6 +9,8 @@ interface Props {
   serverState: string;
   /** Shown under the mod list — game-specific guidance. */
   footer?: string;
+  /** Enables the "paste a Thunderstore link" install field and per-mod Link button. */
+  thunderstoreLinks?: boolean;
 }
 
 interface Folder {
@@ -17,7 +19,7 @@ interface Folder {
   hint: string;
 }
 
-export default function ModsPanel({ serverId, serverState, footer }: Props) {
+export default function ModsPanel({ serverId, serverState, footer, thunderstoreLinks }: Props) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folder, setFolder] = useState('');
   const [mods, setMods] = useState<ModEntry[]>([]);
@@ -27,6 +29,9 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
   const [notice, setNotice] = useState('');
   const [uploading, setUploading] = useState('');
   const [configuring, setConfiguring] = useState<ModEntry | null>(null);
+  const [thunderstoreUrl, setThunderstoreUrl] = useState('');
+  const [installing, setInstalling] = useState(false);
+  const [linking, setLinking] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const running = serverState === 'running';
@@ -81,6 +86,52 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
     }
   };
 
+  const installFromThunderstore = async () => {
+    const url = thunderstoreUrl.trim();
+    if (!url) return;
+    setError('');
+    setNotice('');
+    setInstalling(true);
+    try {
+      const r = await api.installModFromThunderstore(serverId, url);
+      setThunderstoreUrl('');
+      setNotice(`✅ Installed ${r.fileName} v${r.version} from Thunderstore. Restart the server to load it.`);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const linkMod = async (mod: ModEntry) => {
+    const url = window.prompt(`Thunderstore page for "${mod.name}" (used to check for updates via /updatemod):`, '');
+    if (!url) return;
+    setError('');
+    setNotice('');
+    setLinking(mod.name);
+    try {
+      const r = await api.linkMod(serverId, mod.name, url.trim());
+      setNotice(`✅ Linked "${mod.name}" to Thunderstore (current version treated as ${r.version}).`);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLinking('');
+    }
+  };
+
+  const unlinkMod = async (mod: ModEntry) => {
+    setError('');
+    setNotice('');
+    try {
+      await api.unlinkMod(serverId, mod.name);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const folderInfo = folders.find((f) => f.id === folder);
 
   return (
@@ -114,6 +165,22 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
         (Thunderstore <span className="mono">manifest.json</span> / icon / readme files are dropped).
       </p>
 
+      {thunderstoreLinks && (
+        <div className="mods-toolbar">
+          <input
+            className="mono"
+            style={{ flex: 1, minWidth: 240 }}
+            placeholder="Paste a Thunderstore mod page link…"
+            value={thunderstoreUrl}
+            onChange={(e) => setThunderstoreUrl(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && installFromThunderstore()}
+          />
+          <button className="btn" disabled={installing || !thunderstoreUrl.trim()} onClick={installFromThunderstore}>
+            {installing ? 'Installing…' : '🔗 Install from link'}
+          </button>
+        </div>
+      )}
+
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-ok">{notice}</div>}
 
@@ -142,6 +209,21 @@ export default function ModsPanel({ serverId, serverState, footer }: Props) {
                     <button className="btn btn-small" onClick={() => setConfiguring(m)} disabled={!running}>
                       Configure
                     </button>
+                  )}
+                  {thunderstoreLinks && (
+                    m.thunderstoreLink ? (
+                      <button
+                        className="btn btn-small"
+                        title={`Linked to ${m.thunderstoreLink.namespace}-${m.thunderstoreLink.packageName} v${m.thunderstoreLink.version}`}
+                        onClick={() => unlinkMod(m)}
+                      >
+                        🔗 v{m.thunderstoreLink.version} (unlink)
+                      </button>
+                    ) : (
+                      <button className="btn btn-small" disabled={linking === m.name} onClick={() => linkMod(m)}>
+                        {linking === m.name ? 'Linking…' : 'Link'}
+                      </button>
+                    )
                   )}
                   <button className="btn btn-small btn-danger-outline" onClick={() => remove(m)} disabled={!running}>
                     Delete

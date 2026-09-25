@@ -12,6 +12,7 @@ import {
 } from '../db';
 import { performAction } from '../docker';
 import { getAzerothBotStatus, hasDbConfig } from '../games/azerothcore';
+import { updateLinkedMods } from '../modInstall';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
@@ -214,6 +215,10 @@ class DiscordBot {
         .addIntegerOption((o) =>
           o.setName('level').setDescription('Target level').setRequired(true).setMinValue(1).setMaxValue(100)
         ),
+      new SlashCommandBuilder()
+        .setName('updatemod')
+        .setDescription('Check a server\'s Thunderstore-linked mods for updates and install any that are outdated')
+        .addStringOption(serverOption),
     ].map((c) => c.toJSON());
 
     const rest = new REST().setToken(cfg.bot_token);
@@ -424,9 +429,11 @@ class DiscordBot {
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused().toLowerCase();
       const azerothOnly = interaction.commandName === 'wowcreate' || WOW_BOT_COMMAND_NAMES.has(interaction.commandName);
+      const valheimOnly = interaction.commandName === 'updatemod';
       const servers = listServers()
         .filter((s) => s.name.toLowerCase().includes(focused))
         .filter((s) => !azerothOnly || s.game === 'azerothcore')
+        .filter((s) => !valheimOnly || s.game === 'valheim')
         .slice(0, 25)
         .map((s) => ({ name: s.name, value: String(s.id) }));
       await interaction.respond(servers);
@@ -704,6 +711,38 @@ class DiscordBot {
           result: 'error', target: err?.message || String(err),
         });
         await interaction.editReply(`❌ Broadcast failed: ${err?.message || err}`);
+      }
+      return;
+    }
+
+    if (interaction.commandName === 'updatemod') {
+      if (server.game !== 'valheim') {
+        await interaction.reply({ content: '⛔ That server is not a Valheim server.', ephemeral: true });
+        return;
+      }
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        const result = await updateLinkedMods(server, interaction.user.tag, 'discord');
+        if (result.checked === 0) {
+          await interaction.editReply(
+            `ℹ️ **${server.name}** has no mods linked to a Thunderstore package yet — use the "Link" button in the Mods panel first.`
+          );
+          return;
+        }
+        const lines: string[] = [];
+        if (result.updated.length > 0) {
+          lines.push(`✅ Updated ${result.updated.length} mod${result.updated.length === 1 ? '' : 's'} on **${server.name}**:`);
+          for (const u of result.updated) lines.push(`• \`${u.fileName}\`: ${u.from || '(unknown)'} → ${u.to}`);
+          lines.push('⚠️ Restart the server for the update to take effect.');
+        } else {
+          lines.push(`✅ Checked ${result.checked} linked mod${result.checked === 1 ? '' : 's'} on **${server.name}** — everything is already up to date.`);
+        }
+        if (result.errors.length > 0) {
+          lines.push(`⚠️ Failed to check: ${result.errors.map((e) => `\`${e.fileName}\` (${e.error})`).join(', ')}`);
+        }
+        await interaction.editReply(lines.join('\n'));
+      } catch (err: any) {
+        await interaction.editReply(`❌ Failed: ${err?.message || err}`);
       }
       return;
     }

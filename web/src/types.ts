@@ -209,12 +209,20 @@ export interface InviteLink {
   createdAt: string;
 }
 
+export interface ModThunderstoreLink {
+  namespace: string;
+  packageName: string;
+  version: string;
+}
+
 export interface ModEntry {
   name: string;
   size: number;
   isDir: boolean;
   /** Best-effort matching BepInEx .cfg filename, if one was detected (Valheim only). */
   configFile?: string | null;
+  /** Thunderstore package this mod is linked to, if any (Valheim only). */
+  thunderstoreLink?: ModThunderstoreLink | null;
 }
 
 export interface BepInExSetting {

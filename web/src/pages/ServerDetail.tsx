@@ -500,6 +500,7 @@ export default function ServerDetail() {
         <ModsPanel
           serverId={server.id}
           serverState={state}
+          thunderstoreLinks
           footer="BepInEx plugin DLLs (and their mod folders) go here. BepInEx itself must be enabled on the container image first. Mods take effect after a server restart."
         />
       )}

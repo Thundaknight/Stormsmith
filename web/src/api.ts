@@ -159,6 +159,14 @@ export const api = {
   deleteMod: (id: number, folder: string, name: string) =>
     request<{ ok: boolean }>(
       'DELETE', `/api/servers/${id}/mods/${encodeURIComponent(name)}?folder=${encodeURIComponent(folder)}`),
+  installModFromThunderstore: (id: number, url: string) =>
+    request<{ ok: boolean; fileName: string; version: string; extracted: string[]; skipped: string[] }>(
+      'POST', `/api/servers/${id}/mods/install-link`, { url }),
+  linkMod: (id: number, name: string, url: string) =>
+    request<{ ok: boolean; version: string }>(
+      'POST', `/api/servers/${id}/mods/${encodeURIComponent(name)}/link`, { url }),
+  unlinkMod: (id: number, name: string) =>
+    request<{ ok: boolean }>('DELETE', `/api/servers/${id}/mods/${encodeURIComponent(name)}/link`),
   getModConfig: (id: number, file: string) =>
     request<{ path: string; sections: BepInExSection[] }>(
       'GET', `/api/servers/${id}/mods/config?file=${encodeURIComponent(file)}`),

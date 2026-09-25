@@ -150,6 +150,16 @@ export interface UnifiRuleMapping {
   rule_name: string;
 }
 
+export interface ModLink {
+  id: number;
+  server_id: number;
+  file_name: string;
+  namespace: string;
+  package_name: string;
+  installed_version: string;
+  created_at: string;
+}
+
 export type ActivityKind = 'command' | 'broadcast' | 'action' | 'config' | 'player';
 export type ActivitySource = 'web' | 'discord' | 'monitor' | 'scheduler';
 

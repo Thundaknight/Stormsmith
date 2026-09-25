@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import { config } from './config';
 import type {
   ActivityKind, ActivitySource, CustomField, DiscordCommandLogEntry, DiscordConfig, DiscordRolePerm, GameServer,
-  InviteLink, PlayerSeen, ServerActivityEntry, ServerPermission, UnifiConfig, UnifiRuleMapping, User, WowAccountLink,
+  InviteLink, ModLink, PlayerSeen, ServerActivityEntry, ServerPermission, UnifiConfig, UnifiRuleMapping, User,
+  WowAccountLink,
 } from './types';
 
 export const db = new Database(config.dbFile);
@@ -189,6 +190,17 @@ export function initDb(): void {
       rule_id TEXT NOT NULL,
       rule_name TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (server_id, rule_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS server_mod_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      namespace TEXT NOT NULL DEFAULT '',
+      package_name TEXT NOT NULL DEFAULT '',
+      installed_version TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (server_id, file_name)
     );
   `);
 
@@ -759,4 +771,33 @@ export function renameUnifiRule(ruleId: string, ruleName: string): void {
 /** Repoints a mapping after a rule was recreated in UniFi under a new _id but the same name. */
 export function remapUnifiRuleId(oldRuleId: string, newRuleId: string): void {
   db.prepare('UPDATE OR REPLACE server_unifi_rules SET rule_id = ? WHERE rule_id = ?').run(newRuleId, oldRuleId);
+}
+
+export function listModLinks(serverId: number): ModLink[] {
+  return db
+    .prepare('SELECT * FROM server_mod_links WHERE server_id = ? ORDER BY file_name')
+    .all(serverId) as ModLink[];
+}
+
+export function getModLink(serverId: number, fileName: string): ModLink | undefined {
+  return db
+    .prepare('SELECT * FROM server_mod_links WHERE server_id = ? AND file_name = ?')
+    .get(serverId, fileName) as ModLink | undefined;
+}
+
+export function upsertModLink(link: {
+  server_id: number; file_name: string; namespace: string; package_name: string; installed_version: string;
+}): void {
+  db.prepare(`
+    INSERT INTO server_mod_links (server_id, file_name, namespace, package_name, installed_version)
+    VALUES (@server_id, @file_name, @namespace, @package_name, @installed_version)
+    ON CONFLICT (server_id, file_name) DO UPDATE SET
+      namespace = excluded.namespace,
+      package_name = excluded.package_name,
+      installed_version = excluded.installed_version
+  `).run(link);
+}
+
+export function deleteModLink(serverId: number, fileName: string): void {
+  db.prepare('DELETE FROM server_mod_links WHERE server_id = ? AND file_name = ?').run(serverId, fileName);
 }

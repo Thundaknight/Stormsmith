@@ -3,9 +3,9 @@ import path from 'path';
 import express, { Router } from 'express';
 import { requireAdmin, requireAuth, requireServerPermission, userCan } from '../auth';
 import {
-  createServer, createWowAccountLink, deleteServer, deleteWowAccountLink, getServerById, listCustomFields,
-  listPlayersSeen, listServerActivity, listServers, listUnifiRules, listWowAccountLinks, logServerActivity,
-  setCustomFields, setUnifiRules, updateServer,
+  createServer, createWowAccountLink, deleteModLink, deleteServer, deleteWowAccountLink, getServerById,
+  listCustomFields, listModLinks, listPlayersSeen, listServerActivity, listServers, listUnifiRules,
+  listWowAccountLinks, logServerActivity, setCustomFields, setUnifiRules, updateServer,
 } from '../db';
 import { resolveDisplayAddress } from '../address';
 import { unzipSync } from 'fflate';
@@ -19,10 +19,14 @@ import { supportsPlayerList } from '../games/players';
 import { applySettings, parseOptionSettings } from '../games/palworld';
 import { applyBepInExConfig, matchConfigFiles, parseBepInExConfig } from '../games/bepinexConfig';
 import {
-  findPluginsDirScript, findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
+  findSaveDirScript, isValidValheimId, parseIdList, serializeIdList, VALHEIM_LISTS,
 } from '../games/valheim';
 import type { ValheimList } from '../games/valheim';
 import { packageNameFromZip, planFlatZip, planThunderstoreZip } from '../games/thunderstore';
+import { parseThunderstoreUrl } from '../games/thunderstoreApi';
+import { installThunderstoreMod, linkExistingMod } from '../modInstall';
+import { resolveConfigPath, resolveModLayout, resolveValheimPluginsDir, safeModFileName, shArg } from '../modLayout';
+import type { ModLayout } from '../modLayout';
 import { monitor } from '../monitor';
 import { getPublicIp } from '../publicIp';
 import { sendBroadcast, sendRconCommand } from '../rcon';
@@ -500,35 +504,6 @@ router.post('/:id/wow-accounts/create-link', requireServerPermission('rcon'), (r
   res.json({ token, expiresAt: new Date(expiresAt).toISOString() });
 });
 
-// Known PalWorldSettings.ini locations across popular Palworld Docker images
-const PALWORLD_CONFIG_CANDIDATES = [
-  '/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
-  '/serverdata/serverfiles/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
-  '/data/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
-  '/home/steam/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini',
-];
-
-async function resolveConfigPath(server: GameServer): Promise<{ path: string; raw: string }> {
-  if (server.config_path) {
-    return { path: server.config_path, raw: await readContainerFile(server.container_name, server.config_path) };
-  }
-  for (const candidate of PALWORLD_CONFIG_CANDIDATES) {
-    try {
-      const raw = await readContainerFile(server.container_name, candidate);
-      updateServer(server.id, { ...server, config_path: candidate });
-      return { path: candidate, raw };
-    } catch {
-      /* try the next known location */
-    }
-  }
-  throw Object.assign(
-    new Error(
-      'Could not find PalWorldSettings.ini in the container. Set the config file path in the server settings.'
-    ),
-    { statusCode: 404 }
-  );
-}
-
 /** Read the game config file from inside the container (requires configure permission). */
 router.get('/:id/config', requireServerPermission('configure'), asyncRoute(async (req, res) => {
   const server = getServerById(parseInt(req.params.id, 10));
@@ -575,86 +550,9 @@ router.put('/:id/config', requireServerPermission('configure'), asyncRoute(async
 
 // ---- Mods ----
 
-/** Rejects a path we can't safely interpolate into a shell command. */
-function shArg(p: string): string {
-  if (p.includes("'") || p.includes('\n')) {
-    throw Object.assign(new Error('Invalid container path'), { statusCode: 400 });
-  }
-  return `'${p}'`;
-}
-
-interface ModLayout {
-  /** Parent dir passed to putContainerFile; `${base}/${folder}` is the operating dir. */
-  base: string;
-  folders: Array<{ id: string; label: string; hint: string }>;
-  defaultFolder: string;
-}
-
-/** The Palworld Paks directory, derived from the (auto-detected) config file location. */
-async function resolvePalworldPaksDir(server: GameServer): Promise<string> {
-  const { path: configPath } = await resolveConfigPath(server);
-  const idx = configPath.indexOf('/Pal/Saved/');
-  if (idx === -1) {
-    throw Object.assign(new Error('Could not derive the Paks directory from the config path'), { statusCode: 500 });
-  }
-  return `${configPath.slice(0, idx)}/Pal/Content/Paks`;
-}
-
-/** The Valheim BepInEx plugins directory — a manual override, else probed once and cached. */
-async function resolveValheimPluginsDir(server: GameServer): Promise<string> {
-  if (server.valheim_plugins_dir) return server.valheim_plugins_dir;
-  if (monitor.get(server.id)?.state !== 'running') {
-    throw Object.assign(
-      new Error('Start the container once so Stormsmith can locate the BepInEx plugins folder, or set it in Settings.'),
-      { statusCode: 409 }
-    );
-  }
-  const result = await execInContainer(server.container_name, ['sh', '-c', findPluginsDirScript()]);
-  const dir = result.stdout.trim().split(/\r?\n/)[0].trim();
-  if (!dir) {
-    throw Object.assign(
-      new Error('Could not find a BepInEx/plugins folder in the container. Install BepInEx, or set the path in Settings.'),
-      { statusCode: 404 }
-    );
-  }
-  updateServer(server.id, { ...server, valheim_plugins_dir: dir });
-  return dir;
-}
-
-async function resolveModLayout(server: GameServer): Promise<ModLayout> {
-  if (server.game === 'palworld') {
-    return {
-      base: await resolvePalworldPaksDir(server),
-      folders: [
-        { id: '~mods', label: 'Pak mods (~mods)', hint: 'Standard .pak mods go here.' },
-        { id: 'LogicMods', label: 'Logic mods (LogicMods)', hint: 'UE4SS/BP logic mod .pak files go here.' },
-      ],
-      defaultFolder: '~mods',
-    };
-  }
-  if (server.game === 'valheim') {
-    const pluginsDir = await resolveValheimPluginsDir(server);
-    const folderId = path.posix.basename(pluginsDir) || 'plugins';
-    return {
-      base: path.posix.dirname(pluginsDir),
-      folders: [{ id: folderId, label: 'BepInEx plugins', hint: 'BepInEx plugin .dll files (and mod folders) go here.' }],
-      defaultFolder: folderId,
-    };
-  }
-  throw Object.assign(new Error('Mod management is not available for this game'), { statusCode: 400 });
-}
-
 function pickModFolder(layout: ModLayout, req: { query: Record<string, unknown> }): string {
   const f = String(req.query.folder || layout.defaultFolder);
   return layout.folders.some((x) => x.id === f) ? f : layout.defaultFolder;
-}
-
-function safeModFileName(name: string): string {
-  const clean = String(name).trim();
-  if (!clean || clean.includes('/') || clean.includes('\\') || clean.includes('..') || clean.startsWith('.')) {
-    throw Object.assign(new Error('Invalid file name'), { statusCode: 400 });
-  }
-  return clean;
 }
 
 /** List mod files (requires the container to be running). */
@@ -683,7 +581,15 @@ router.get('/:id/mods', requireServerPermission('configure'), asyncRoute(async (
       /* no BepInEx/config folder yet — no plugin has generated one */
     }
     const matches = matchConfigFiles(mods.map((m) => m.name), cfgNames);
-    withConfig = mods.map((m) => ({ ...m, configFile: matches[m.name] ?? null }));
+    const links = new Map(listModLinks(server.id).map((l) => [l.file_name, l]));
+    withConfig = mods.map((m) => {
+      const link = links.get(m.name);
+      return {
+        ...m,
+        configFile: matches[m.name] ?? null,
+        thunderstoreLink: link ? { namespace: link.namespace, packageName: link.package_name, version: link.installed_version } : null,
+      };
+    });
   }
   res.json({ path: dir, folder, folders: layout.folders, running: true, mods: withConfig });
 }));
@@ -745,6 +651,52 @@ router.post(
     res.json({ ok: true, name: fileName, size: body.length, folder, extracted: [fileName] });
   })
 );
+
+/** Downloads a Thunderstore package and installs it as a new mod (Valheim only). */
+router.post('/:id/mods/install-link', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const url = String(req.body?.url || '');
+  const ref = parseThunderstoreUrl(url);
+  if (!ref) {
+    res.status(400).json({ error: 'That doesn\'t look like a Thunderstore package link.' });
+    return;
+  }
+  const result = await installThunderstoreMod(server, ref, req.user!.username, 'web');
+  res.json({ ok: true, ...result });
+}));
+
+/** Associates an already-installed mod with a Thunderstore package, for update checks. */
+router.post('/:id/mods/:filename/link', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  const fileName = safeModFileName(req.params.filename);
+  const url = String(req.body?.url || '');
+  const ref = parseThunderstoreUrl(url);
+  if (!ref) {
+    res.status(400).json({ error: 'That doesn\'t look like a Thunderstore package link.' });
+    return;
+  }
+  const result = await linkExistingMod(server, fileName, ref, req.user!.username, 'web');
+  res.json({ ok: true, ...result });
+}));
+
+/** Removes a mod's Thunderstore link (it stops being checked/updated by /updatemod). */
+router.delete('/:id/mods/:filename/link', requireServerPermission('configure'), asyncRoute(async (req, res) => {
+  const server = getServerById(parseInt(req.params.id, 10));
+  if (!server) {
+    res.status(404).json({ error: 'Server not found' });
+    return;
+  }
+  deleteModLink(server.id, safeModFileName(req.params.filename));
+  res.json({ ok: true });
+}));
 
 /** Delete a mod file (requires the container to be running). */
 router.delete('/:id/mods/:filename', requireServerPermission('configure'), asyncRoute(async (req, res) => {
