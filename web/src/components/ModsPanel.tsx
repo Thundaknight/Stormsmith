@@ -197,13 +197,30 @@ export default function ModsPanel({ serverId, serverState, footer, thunderstoreL
       {mods.length > 0 && (
         <table className="table">
           <thead>
-            <tr><th>File</th><th>Size</th><th></th></tr>
+            <tr>
+              <th>File</th><th>Size</th>{thunderstoreLinks && <th>Version</th>}<th></th>
+            </tr>
           </thead>
           <tbody>
             {mods.map((m) => (
               <tr key={m.name}>
                 <td className="mono">{m.isDir ? '📁 ' : ''}{m.name}</td>
                 <td className="muted">{m.isDir ? '—' : formatBytes(m.size)}</td>
+                {thunderstoreLinks && (
+                  <td className={m.thunderstoreLink ? 'mono' : 'muted'}>
+                    {m.thunderstoreLink ? (
+                      <a
+                        href={`https://thunderstore.io/c/valheim/p/${encodeURIComponent(m.thunderstoreLink.namespace)}/${encodeURIComponent(m.thunderstoreLink.packageName)}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {m.thunderstoreLink.namespace}-{m.thunderstoreLink.packageName} v{m.thunderstoreLink.version}
+                      </a>
+                    ) : (
+                      'Unknown, manually uploaded'
+                    )}
+                  </td>
+                )}
                 <td className="table-actions">
                   {m.configFile && (
                     <button className="btn btn-small" onClick={() => setConfiguring(m)} disabled={!running}>
@@ -212,12 +229,8 @@ export default function ModsPanel({ serverId, serverState, footer, thunderstoreL
                   )}
                   {thunderstoreLinks && (
                     m.thunderstoreLink ? (
-                      <button
-                        className="btn btn-small"
-                        title={`Linked to ${m.thunderstoreLink.namespace}-${m.thunderstoreLink.packageName} v${m.thunderstoreLink.version}`}
-                        onClick={() => unlinkMod(m)}
-                      >
-                        🔗 v{m.thunderstoreLink.version} (unlink)
+                      <button className="btn btn-small" onClick={() => unlinkMod(m)}>
+                        Unlink
                       </button>
                     ) : (
                       <button className="btn btn-small" disabled={linking === m.name} onClick={() => linkMod(m)}>

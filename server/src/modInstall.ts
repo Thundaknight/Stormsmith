@@ -43,12 +43,17 @@ async function installVersion(
     bepinexDir: path.posix.dirname(targetDir),
     packageName: fileName,
   });
-  if (plan.files.length === 0) {
+  // A Thunderstore-installed mod is just the plugin DLL(s) — dependency zips, docs,
+  // sample configs, and other package boilerplate beyond the manifest/icon/readme
+  // (already dropped by planThunderstoreZip) aren't files BepInEx needs on disk.
+  const dllFiles = plan.files.filter((f) => f.path.toLowerCase().endsWith('.dll'));
+  const skipped = [...plan.skipped, ...plan.files.filter((f) => !dllFiles.includes(f)).map((f) => path.posix.basename(f.path))];
+  if (dllFiles.length === 0) {
     throw Object.assign(
-      new Error(`${ref.namespace}-${ref.name} v${version} contained no installable files.`), { statusCode: 400 }
+      new Error(`${ref.namespace}-${ref.name} v${version} contained no .dll files.`), { statusCode: 400 }
     );
   }
-  await putContainerFiles(server.container_name, plan.files);
+  await putContainerFiles(server.container_name, dllFiles);
 
   upsertModLink({
     server_id: server.id, file_name: fileName, namespace: ref.namespace,
@@ -59,7 +64,7 @@ async function installVersion(
     detail: `installed mod ${ref.namespace}-${ref.name} v${version} from Thunderstore`,
   });
 
-  return { fileName, version, extracted: plan.files.map((f) => f.path), skipped: plan.skipped };
+  return { fileName, version, extracted: dllFiles.map((f) => f.path), skipped };
 }
 
 /** Downloads a Thunderstore package's latest version and installs it, recording the link. */
