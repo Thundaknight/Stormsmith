@@ -327,6 +327,7 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent);
   position: fixed;
   inset: 0 0 0 230px;
   z-index: 0;
+  pointer-events: none;
   opacity: 0.35;
   background-color: transparent;
   background-image:
@@ -337,7 +338,7 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent);
   background-size: 100% 100%, 100% 100%, 900px 900px, 700px 700px;
   background-position: center, center, -100px -80px, 400px 200px;
 }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .dashboard-bg { inset: 0; }
 }
 .login-screen .version-footer {
@@ -552,7 +553,7 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent);
 
 @media (max-width: 760px) {
   .layout { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: static; }
+  .sidebar { width: 100%; height: auto; position: relative; z-index: 2; }
   .content { padding: 18px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: span 1; }
